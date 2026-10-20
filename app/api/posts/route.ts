@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { hasSameOrigin, isJsonRequest } from "@/lib/http";
 import { getDatabase, isMongoConfigured } from "@/lib/mongodb";
+import { allowedRadius, haversineMeters, validCoordinates } from "@/lib/location-check";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,35 +24,6 @@ type LocationInput = {
   longitude: number;
   accuracy: number;
 };
-
-function validCoordinates(longitude: unknown, latitude: unknown): boolean {
-  return typeof longitude === "number" &&
-    typeof latitude === "number" &&
-    Number.isFinite(longitude) && longitude >= -180 && longitude <= 180 &&
-    Number.isFinite(latitude) && latitude >= -90 && latitude <= 90;
-}
-
-function haversineMeters(a: [number, number], b: [number, number]): number {
-  const radians = (degrees: number) => (degrees * Math.PI) / 180;
-  const [longitudeA, latitudeA] = a;
-  const [longitudeB, latitudeB] = b;
-  const deltaLatitude = radians(latitudeB - latitudeA);
-  const deltaLongitude = radians(longitudeB - longitudeA);
-  const first = radians(latitudeA);
-  const second = radians(latitudeB);
-  const chord = Math.sin(deltaLatitude / 2) ** 2 +
-    Math.cos(first) * Math.cos(second) * Math.sin(deltaLongitude / 2) ** 2;
-  return 6371000 * 2 * Math.atan2(Math.sqrt(chord), Math.sqrt(Math.max(0, 1 - chord)));
-}
-
-function allowedRadius(kind: string): number {
-  const normalized = kind.toLowerCase();
-  if (/street|road|path|highway/.test(normalized)) return 250;
-  if (/building|restaurant|shop|amenity|venue|point of interest/.test(normalized)) return 180;
-  if (/neighbourhood|neighborhood|suburb|village|district/.test(normalized)) return 1500;
-  if (/city|town|municipality/.test(normalized)) return 8000;
-  return 300;
-}
 
 function publicPost(document: Record<string, unknown>) {
   return {
