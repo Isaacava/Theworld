@@ -14,126 +14,110 @@ export type PlaceSearchResult = {
   address?: Record<string, string>;
 };
 
-const SEARCH_ENDPOINT = "https://nominatim.openstreetmap.org/search";
-const REVERSE_ENDPOINT = "https://nominatim.openstreetmap.org/reverse";
-const resultCache = new Map<string, PlaceSearchResult[]>();
+const searchCache = new Map<string, PlaceSearchResult[]>();
 const reverseCache = new Map<string, PlaceSearchResult | null>();
-let lastRequestStartedAt = 0;
-let requestQueue: Promise<void> = Promise.resolve();
 
-const wait = (milliseconds: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
-
-async function fetchNominatim(url: URL): Promise<unknown> {
-  const task = requestQueue.then(async () => {
-    const delay = Math.max(0, 1100 - (Date.now() - lastRequestStartedAt));
-    if (delay > 0) await wait(delay);
-    lastRequestStartedAt = Date.now();
-  });
-  requestQueue = task.catch(() => undefined);
-  await task;
-
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    headers: { "Accept-Language": "en" },
-    cache: "no-store",
-    referrerPolicy: "strict-origin-when-cross-origin",
-  });
-  if (response.status === 429) {
-    throw new Error("Place search is temporarily busy. Please wait a moment before trying again.");
+async function readApiPayload<T>(url: URL): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), {
+      method: "GET",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+  } catch {
+    throw new Error("The place service couldn't be reached. Check your connection and try again.");
   }
+
+  const payload: unknown = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error("We couldn't look up this place right now. Please try again.");
+    const message =
+      payload && typeof payload === "object" && "error" in payload &&
+      typeof (payload as { error?: unknown }).error === "string"
+        ? (payload as { error: string }).error
+        : "The place service is temporarily unavailable. Please try again.";
+    throw new Error(message);
   }
-  return response.json() as Promise<unknown>;
+  return payload as T;
 }
 
 /**
- * Prototype-only place search using the public Nominatim service.
- *
- * Requests are submitted only after the user submits the search form (not on
- * each keystroke), cached in memory for this browser session, and spaced out
- * by at least 1.1 seconds in this JavaScript runtime. That is suitable only
- * for early testing with a small number of people. A public launch needs a
- * shared rate limit and cache, or a geocoding provider designed for production.
+ * Search the prototype's same-origin API. The server applies shared request
+ * throttling and Mongo-backed caching when MongoDB is configured, so browsers
+ * do not each send their own requests directly to the public Nominatim service.
  */
-export async function searchPlaces(
-  rawQuery: string,
-): Promise<PlaceSearchResult[]> {
+export async function searchPlaces(rawQuery: string): Promise<PlaceSearchResult[]> {
   const query = rawQuery.trim().replace(/\s+/g, " ");
-  if (query.length < 2) {
-    return [];
+  if (query.length < 2) return [];
+  if (query.length > 160) {
+    throw new Error("Search terms must be 160 characters or fewer.");
   }
 
   const cacheKey = query.toLocaleLowerCase();
-  const cached = resultCache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
+  const cached = searchCache.get(cacheKey);
+  if (cached) return cached;
 
-  const url = new URL(SEARCH_ENDPOINT);
+  const url = new URL("/api/places/search", window.location.origin);
   url.searchParams.set("q", query);
-  url.searchParams.set("format", "jsonv2");
-  url.searchParams.set("addressdetails", "1");
-  url.searchParams.set("limit", "6");
-  url.searchParams.set("accept-language", "en");
+  const payload = await readApiPayload<{ results?: unknown }>(url);
+  const results = Array.isArray(payload.results)
+    ? (payload.results as PlaceSearchResult[]).filter(
+        (item) =>
+          item &&
+          typeof item.display_name === "string" &&
+          ["node", "way", "relation"].includes(item.osm_type) &&
+          Number.isSafeInteger(Number(item.osm_id)) &&
+          Number.isFinite(Number(item.lat)) &&
+          Number.isFinite(Number(item.lon)),
+      )
+    : [];
 
-  const payload: unknown = await fetchNominatim(url);
-  if (!Array.isArray(payload)) {
-    throw new Error("The place search returned an unexpected response.");
-  }
-
-  const results = (payload as PlaceSearchResult[]).filter(
-    (item) =>
-      item &&
-      typeof item.display_name === "string" &&
-      Number.isFinite(Number(item.lat)) &&
-      Number.isFinite(Number(item.lon)),
-  );
-
-  resultCache.set(cacheKey, results);
+  searchCache.set(cacheKey, results);
   return results;
 }
 
-
 /**
- * Reverse geocode a map tap into a nearby named feature. Results are cached
- * by rounded coordinates. This is a low-volume prototype integration only.
+ * Resolve a map tap to the nearest named OSM feature through the server API.
+ * The coordinate is used only for this explicit lookup; it is not published
+ * as the user's current device position.
  */
-export async function reversePlace(latitude: number, longitude: number): Promise<PlaceSearchResult | null> {
-  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
-      !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+export async function reversePlace(
+  latitude: number,
+  longitude: number,
+): Promise<PlaceSearchResult | null> {
+  if (
+    !Number.isFinite(latitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    !Number.isFinite(longitude) ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
     throw new Error("That map position is not valid.");
   }
 
   const cacheKey = `${latitude.toFixed(4)},${longitude.toFixed(4)}`;
   if (reverseCache.has(cacheKey)) return reverseCache.get(cacheKey) ?? null;
 
-  const url = new URL(REVERSE_ENDPOINT);
+  const url = new URL("/api/places/reverse", window.location.origin);
   url.searchParams.set("lat", String(latitude));
   url.searchParams.set("lon", String(longitude));
-  url.searchParams.set("format", "jsonv2");
-  url.searchParams.set("addressdetails", "1");
-  url.searchParams.set("zoom", "18");
-  url.searchParams.set("accept-language", "en");
 
-  const payload = await fetchNominatim(url);
-  if (!payload || typeof payload !== "object" ||
-      !("display_name" in payload) ||
-      typeof (payload as { display_name?: unknown }).display_name !== "string") {
+  const payload = await readApiPayload<{ place?: unknown }>(url);
+  const result = payload.place as PlaceSearchResult | null | undefined;
+  if (
+    !result ||
+    typeof result.display_name !== "string" ||
+    !["node", "way", "relation"].includes(result.osm_type) ||
+    !Number.isFinite(Number(result.lat)) ||
+    !Number.isFinite(Number(result.lon))
+  ) {
     reverseCache.set(cacheKey, null);
     return null;
   }
 
-  const item = payload as PlaceSearchResult;
-  if (typeof item.lat !== "string" || typeof item.lon !== "string" ||
-      !Number.isFinite(Number(item.lat)) || !Number.isFinite(Number(item.lon))) {
-    reverseCache.set(cacheKey, null);
-    return null;
-  }
-
-  reverseCache.set(cacheKey, item);
-  return item;
+  reverseCache.set(cacheKey, result);
+  return result;
 }
 
 export function getPlaceTitle(place: PlaceSearchResult): string {
