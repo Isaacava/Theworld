@@ -3,9 +3,9 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "THE WORLD — Explore the places that connect us",
+  title: "THE WORLD — Local conversations, connected to places",
   description:
-    "Explore the real Earth, discover place-based communities, and see the world through the people connected to its places.",
+    "Explore real places, discover local conversations, and contribute when you are nearby.",
   applicationName: "THE WORLD",
   keywords: [
     "THE WORLD",
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   ],
   openGraph: {
     title: "THE WORLD",
-    description: "Every place has a story. Explore the world through its communities.",
+    description: "Find a place, meet its people, and join local conversations.",
     type: "website",
   },
 };
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#07111b",
+  themeColor: "#F5F4EF",
 };
 
 export default function RootLayout({
