@@ -159,6 +159,14 @@ export default function HomePage() {
   const [postBusy, setPostBusy] = useState(false);
   const [postError, setPostError] = useState("");
 
+  const [replyThreadPostId, setReplyThreadPostId] = useState<string | null>(null);
+  const [repliesByPost, setRepliesByPost] = useState<Record<string, CommunityReply[]>>({});
+  const [replyLoadingPostId, setReplyLoadingPostId] = useState<string | null>(null);
+  const [replyBusyPostId, setReplyBusyPostId] = useState<string | null>(null);
+  const [replyBody, setReplyBody] = useState("");
+  const [replyError, setReplyError] = useState("");
+  const replyRequestRef = useRef(0);
+
   const placeSupportsLiveHere = Boolean(
     selectedPlace && /^(node|way|relation)-[1-9]\\d{0,17}$/.test(selectedPlace.id),
   );
@@ -280,6 +288,155 @@ export default function HomePage() {
     }
   }
 
+  async function toggleReplyThread(post: CommunityPost) {
+    if (replyThreadPostId === post.id) {
+      setReplyThreadPostId(null);
+      setReplyError("");
+      setReplyBody("");
+      return;
+    }
+
+    const requestId = ++replyRequestRef.current;
+    setReplyThreadPostId(post.id);
+    setReplyError("");
+    setReplyBody("");
+
+    if (Object.prototype.hasOwnProperty.call(repliesByPost, post.id)) return;
+
+    setReplyLoadingPostId(post.id);
+    try {
+      const response = await fetch(`/api/posts/${encodeURIComponent(post.id)}/replies`, {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (requestId !== replyRequestRef.current) return;
+
+      if (!response.ok) {
+        setReplyError(
+          typeof payload.error === "string"
+            ? payload.error
+            : "We couldn't load replies. Please try again.",
+        );
+        return;
+      }
+
+      setRepliesByPost((current) => ({
+        ...current,
+        [post.id]: Array.isArray(payload.replies) ? payload.replies as CommunityReply[] : [],
+      }));
+    } catch {
+      if (requestId === replyRequestRef.current) {
+        setReplyError("We couldn't load replies. Check your connection and try again.");
+      }
+    } finally {
+      if (requestId === replyRequestRef.current) setReplyLoadingPostId(null);
+    }
+  }
+
+  async function handleReplySubmit(
+    event: FormEvent<HTMLFormElement>,
+    post: CommunityPost,
+  ) {
+    event.preventDefault();
+    if (replyBusyPostId) return;
+
+    if (!sessionUser) {
+      setAuthMode("login");
+      setAuthError("");
+      setAuthModalOpen(true);
+      return;
+    }
+    if (authConfigured !== true) {
+      setReplyError("Community storage is not connected yet. Configure MongoDB before replying.");
+      return;
+    }
+    if (!selectedPlace || selectedPlace.id !== post.placeKey) {
+      setReplyError("Open this post from its place community before replying.");
+      return;
+    }
+
+    const body = replyBody.trim();
+    if (body.length < 2 || body.length > 300) {
+      setReplyError("A reply must contain 2–300 characters.");
+      return;
+    }
+    if (!("geolocation" in navigator)) {
+      setReplyError("This browser doesn't support location checks.");
+      return;
+    }
+
+    setReplyBusyPostId(post.id);
+    setReplyError("");
+    showNotice("Checking your location before replying…");
+
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          resolve,
+          reject,
+          { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
+        );
+      });
+
+      const response = await fetch(
+        `/api/posts/${encodeURIComponent(post.id)}/replies`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            body,
+            location: {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+            },
+          }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || !payload.reply) {
+        if (response.status === 401) {
+          setSessionUser(null);
+          setAuthMode("login");
+          setAuthError("");
+          setAuthModalOpen(true);
+        }
+        setReplyError(
+          typeof payload.error === "string"
+            ? payload.error
+            : "We couldn't publish your reply. Please try again.",
+        );
+        return;
+      }
+
+      const reply = payload.reply as CommunityReply;
+      setRepliesByPost((current) => {
+        const existing = current[post.id] || [];
+        if (existing.some((item) => item.id === reply.id)) return current;
+        return { ...current, [post.id]: [...existing, reply] };
+      });
+      setCommunityPosts((current) => current.map((item) =>
+        item.id === post.id
+          ? { ...item, replyCount: (item.replyCount || 0) + 1 }
+          : item
+      ));
+      setReplyBody("");
+      showNotice("Your reply is now part of the conversation.");
+    } catch (error) {
+      const locationError = error as GeolocationPositionError;
+      if (locationError?.code === 1) {
+        setReplyError("Location permission was denied. Allow location access to reply here.");
+      } else if (locationError?.code === 3) {
+        setReplyError("The location check timed out. Try again where your GPS signal is clearer.");
+      } else {
+        setReplyError("We couldn't verify your location or reach the server. Please try again.");
+      }
+    } finally {
+      setReplyBusyPostId(null);
+    }
+  }
+
   async function handlePublishPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (postBusy || !selectedPlace) return;
@@ -395,6 +552,9 @@ export default function HomePage() {
   const selectPlace = useCallback(
     (place: SelectedPlace) => {
       setSelectedPlace(place);
+      setReplyThreadPostId(null);
+      setReplyBody("");
+      setReplyError("");
       setActiveNav("explore");
       setSavedViewOpen(false);
       setMobilePanelOpen(true);
@@ -950,6 +1110,93 @@ export default function HomePage() {
                       <span><MapPin size={12} /> {post.placeName || selectedPlace?.name}</span>
                       {post.presenceVerifiedAt && <span><ShieldCheck size={12} /> Presence checked</span>}
                     </div>
+
+                    <button
+                      className={replyThreadPostId === post.id ? "reply-thread-toggle is-open" : "reply-thread-toggle"}
+                      type="button"
+                      onClick={() => { void toggleReplyThread(post); }}
+                      aria-expanded={replyThreadPostId === post.id}
+                      aria-controls={`reply-thread-${post.id}`}
+                    >
+                      <MessageCircle size={14} />
+                      <span>{post.replyCount || 0} {post.replyCount === 1 ? "reply" : "replies"}</span>
+                      <span className="reply-thread-action">{replyThreadPostId === post.id ? "Hide conversation" : "Join conversation"}</span>
+                      <ChevronRight size={15} className="reply-thread-chevron" />
+                    </button>
+
+                    {replyThreadPostId === post.id && (
+                      <div className="reply-thread" id={`reply-thread-${post.id}`}>
+                        {replyLoadingPostId === post.id ? (
+                          <div className="reply-thread-loading">
+                            <span className="mini-spinner" /> Loading replies…
+                          </div>
+                        ) : replyError && !Object.prototype.hasOwnProperty.call(repliesByPost, post.id) ? (
+                          <div className="reply-thread-error" role="alert">{replyError}</div>
+                        ) : (
+                          <>
+                            {(repliesByPost[post.id] || []).length === 0 ? (
+                              <div className="reply-thread-empty">
+                                <strong>No replies yet.</strong>
+                                <span>Be the first to add something useful to this conversation.</span>
+                              </div>
+                            ) : (
+                              <div className="reply-list">
+                                {(repliesByPost[post.id] || []).map((reply) => (
+                                  <div className="reply-row" key={reply.id}>
+                                    <span className="reply-avatar">{(reply.author.displayName || reply.author.username || "W").slice(0, 1).toUpperCase()}</span>
+                                    <div className="reply-content">
+                                      <div className="reply-author-line">
+                                        <strong>{reply.author.displayName || reply.author.username}</strong>
+                                        <small>@{reply.author.username} · {formatPostTime(reply.createdAt)}</small>
+                                      </div>
+                                      <p>{reply.body}</p>
+                                      {reply.presenceVerifiedAt && (
+                                        <span className="reply-presence"><ShieldCheck size={11} /> Local presence checked when posted</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {replyError && <p className="reply-form-error" role="alert">{replyError}</p>}
+
+                            {sessionUser ? (
+                              <form className="reply-composer-form" onSubmit={(event) => { void handleReplySubmit(event, post); }}>
+                                <textarea
+                                  value={replyThreadPostId === post.id ? replyBody : ""}
+                                  onChange={(event) => setReplyBody(event.target.value.slice(0, 300))}
+                                  placeholder="Add a thoughtful reply…"
+                                  maxLength={300}
+                                  rows={2}
+                                  aria-label="Your reply"
+                                  disabled={replyBusyPostId === post.id || authConfigured !== true}
+                                />
+                                <div className="reply-composer-bottom">
+                                  <span>{replyBody.length}/300 · Local presence required</span>
+                                  <button type="submit" disabled={replyBusyPostId === post.id || replyBody.trim().length < 2 || authConfigured !== true}>
+                                    {replyBusyPostId === post.id ? <span className="mini-spinner" /> : <Send size={13} />}
+                                    {replyBusyPostId === post.id ? "Checking…" : "Reply"}
+                                  </button>
+                                </div>
+                              </form>
+                            ) : (
+                              <div className="reply-signin-prompt">
+                                <span>Sign in and be physically present to reply.</span>
+                                <button type="button" onClick={() => { setAuthMode("login"); setAuthError(""); setAuthModalOpen(true); }}>
+                                  <LogIn size={13} /> Sign in
+                                </button>
+                              </div>
+                            )}
+
+                            <div className="reply-presence-note">
+                              <ShieldCheck size={12} />
+                              <span>Replies are checked against the mapped place on the server. Exact coordinates are never published.</span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </article>
                 ))}
               </div>
