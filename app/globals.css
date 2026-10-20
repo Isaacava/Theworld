@@ -738,6 +738,8 @@ button:disabled { cursor: not-allowed; }
   color: var(--primary);
 }
 
+.right-panel-mobile-handle { display: none; }
+
 .right-panel {
   position: absolute;
   z-index: 11;
