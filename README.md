@@ -221,6 +221,46 @@ No provider is guaranteed to stay free or unlimited. The goal is to validate the
 
 ---
 
+## Running the prototype locally
+
+### Requirements
+
+- Node.js 20.9 or later (Node.js 22 is recommended).
+- npm.
+- A modern browser with WebGL support for the interactive globe.
+
+### Start the development server
+
+```bash
+git clone https://github.com/Isaacava/Theworld.git
+cd Theworld
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+The initial build is a map-explorer prototype. It supports the interactive globe, real-place search, quick links to sample destination cities, a location preview panel, a temporary session-only saved-place list, browser-based nearby positioning when permission is granted, and a globe/flat-map toggle. Community posts, account authentication, MongoDB persistence, and server-enforced presence verification are not connected yet.
+
+The default map style is OpenFreeMap's dark style. To test another compatible MapLibre style, create a local `.env.local` file:
+
+```dotenv
+NEXT_PUBLIC_MAP_STYLE_URL=https://tiles.openfreemap.org/styles/liberty
+```
+
+Do not commit real secrets or private environment files. The Nominatim place search in this prototype uses the public OpenStreetMap service only for low-volume testing; it is not a production-ready geocoding backend.
+
+### Validate the application
+
+```bash
+npm run typecheck
+npm run build
+```
+
+A GitHub Actions workflow runs the type-check and production build on pushes and pull requests to `main`.
+
+---
+
 ## Development and cost strategy
 
 ### Prototype phase
