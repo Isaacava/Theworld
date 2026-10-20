@@ -43,6 +43,7 @@ import {
   getPlaceSubtitle,
   getPlaceTitle,
   getPlaceZoom,
+  reversePlace,
   searchPlaces,
   type PlaceSearchResult,
 } from "@/lib/places";
@@ -141,6 +142,52 @@ export default function HomePage() {
       mapRef.current?.setMarker(place.coordinates);
     },
     [],
+  );
+
+  const mapTapRequestRef = useRef(0);
+
+  const handleMapClick = useCallback(
+    async (coordinates: LngLat) => {
+      const requestId = ++mapTapRequestRef.current;
+      const [longitude, latitude] = coordinates;
+      showNotice("Looking up this place…");
+
+      try {
+        const result = await reversePlace(latitude, longitude);
+        if (requestId !== mapTapRequestRef.current) return;
+        if (result) {
+          const selected: SelectedPlace = {
+            id: `${result.osm_type}-${result.osm_id}`,
+            name: getPlaceTitle(result),
+            subtitle: getPlaceSubtitle(result),
+            displayName: result.display_name,
+            kind: getPlaceKind(result),
+            coordinates,
+            zoom: 15.5,
+          };
+          setSearchValue(selected.name);
+          selectPlace(selected);
+          showNotice("Place opened. Its community preview is ready to explore.");
+          return;
+        }
+        const selected: SelectedPlace = {
+          id: `map-${latitude.toFixed(4)}-${longitude.toFixed(4)}`,
+          name: "Unnamed map location",
+          subtitle: "No nearby named feature was found",
+          displayName: `Approximate map point: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
+          kind: "Map location",
+          coordinates,
+          zoom: 15.5,
+        };
+        setSearchValue("");
+        selectPlace(selected);
+        showNotice("Opened this map point. A named place could not be found nearby.");
+      } catch (error) {
+        if (requestId !== mapTapRequestRef.current) return;
+        showNotice(error instanceof Error ? error.message : "Couldn't look up this point. You can still search for a place.");
+      }
+    },
+    [selectPlace, showNotice],
   );
 
   const chooseSearchResult = useCallback(
@@ -294,7 +341,11 @@ export default function HomePage() {
   return (
     <main className="world-shell">
       <div className="map-background" aria-hidden="true">
-        <GlobeMap ref={mapRef} onStatusChange={setMapStatus} />
+        <GlobeMap
+            ref={mapRef}
+            onStatusChange={setMapStatus}
+            onMapClick={(coordinates) => { void handleMapClick(coordinates); }}
+          />
       </div>
       <div className="map-shade" aria-hidden="true" />
 
@@ -614,7 +665,7 @@ export default function HomePage() {
             </p>
             <div className="welcome-instruction">
               <span className="instruction-number">01</span>
-              <span><strong>Search the real world</strong><small>Try a street, city, or landmark.</small></span>
+              <span><strong>Search or tap the map</strong><small>Choose a street, city, landmark, or point on Earth.</small></span>
               <Search size={17} />
             </div>
             <div className="welcome-instruction">
@@ -688,7 +739,7 @@ export default function HomePage() {
       )}
 
       <div className="mobile-map-search-hint">
-        <Navigation size={14} /> Search for any place on Earth
+        <Navigation size={14} /> Tap the map or search for any place
       </div>
 
       <footer className="prototype-footer">
