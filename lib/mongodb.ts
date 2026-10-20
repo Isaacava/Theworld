@@ -47,6 +47,8 @@ export async function getDatabase(): Promise<Db> {
       db.collection("communities").createIndex({ placeKey: 1 }, { unique: true, name: "communities_place_key_unique" }),
       db.collection("placeVerificationCache").createIndex({ placeKey: 1 }, { unique: true, name: "place_verification_place_key_unique" }),
       db.collection("placeVerificationCache").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "place_verification_expiry_ttl" }),
+      db.collection("presenceAttempts").createIndex({ userId: 1, createdAt: -1 }, { name: "presence_attempts_user_recent" }),
+      db.collection("presenceAttempts").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "presence_attempts_expiry_ttl" }),
     ]).then(() => undefined);
   }
 
