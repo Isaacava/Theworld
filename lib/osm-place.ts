@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Db } from "mongodb";
+import { fetchNominatimJson, NominatimError } from "@/lib/nominatim";
 
 export type GeoJsonGeometry = {
   type: "Point" | "MultiPoint" | "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon";
@@ -79,90 +80,25 @@ function pointGeometry(coordinates: [number, number]): GeoJsonGeometry {
   return { type: "Point", coordinates };
 }
 
-async function waitForNominatimSlot(db: Db): Promise<void> {
-  // A Mongo-backed reservation serializes lookup starts across Vercel function
-  // instances. A process-local sleep alone would not enforce the public API's
-  // global one-request-per-second guideline in a serverless deployment.
-  const now = Date.now();
-  const collection = db.collection<{ _id: string; nextAllowedAt: number }>("geocoderRateLimits");
-  const previous = await collection.findOneAndUpdate(
-    { _id: "nominatim-global" },
-    [{
-      $set: {
-        nextAllowedAt: {
-          $add: [
-            { $max: [{ $ifNull: ["$nextAllowedAt", now] }, now] },
-            1100,
-          ],
-        },
-      },
-    }],
-    { upsert: true, returnDocument: "before" },
-  );
-
-  const reservedStart = previous?.nextAllowedAt ?? now;
-  const delay = Math.max(0, reservedStart - now);
-  // Avoid consuming most of a short-lived serverless invocation waiting in a
-  // queue. The reserved slot is intentionally allowed to go unused in this case.
-  if (delay > 4000) {
-    throw new PlaceLookupError(
-      "Place verification is busy right now. Wait a moment and try again.",
-      503,
-    );
-  }
-  if (delay > 0) {
-    await new Promise<void>((resolve) => setTimeout(resolve, delay));
-  }
-}
-
 async function lookupOsmFeature(db: Db, lookupId: string): Promise<OSMResult | null> {
-  await waitForNominatimSlot(db);
-
-  const url = new URL(LOOKUP_ENDPOINT);
+  const url = new URL("/lookup", "https://nominatim.openstreetmap.org");
   url.searchParams.set("osm_ids", lookupId);
   url.searchParams.set("format", "jsonv2");
   url.searchParams.set("addressdetails", "1");
   url.searchParams.set("polygon_geojson", "1");
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  let payload: unknown;
   try {
-    const response = await fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        "Accept": "application/json",
-        "Accept-Language": "en",
-        "User-Agent": "THE-WORLD-prototype/0.1 (https://github.com/Isaacava/Theworld)",
-      },
-      cache: "no-store",
-      signal: controller.signal,
-    });
-
-    if (response.status === 429) {
-      throw new PlaceLookupError(
-        "Place verification is temporarily busy. Wait a moment and try again.",
-        503,
-      );
-    }
-    if (!response.ok) {
-      throw new PlaceLookupError(
-        "The map provider couldn't verify this place right now. Please try again.",
-        503,
-      );
-    }
-
-    const payload: unknown = await response.json();
-    if (!Array.isArray(payload) || payload.length === 0) return null;
-    return payload[0] as OSMResult;
+    payload = await fetchNominatimJson(db, url);
   } catch (error) {
-    if (error instanceof PlaceLookupError) throw error;
-    throw new PlaceLookupError(
-      "The map provider couldn't verify this place. Check your connection and try again.",
-      503,
-    );
-  } finally {
-    clearTimeout(timeout);
+    if (error instanceof NominatimError) {
+      throw new PlaceLookupError(error.message, error.status);
+    }
+    throw new PlaceLookupError("The map provider couldn't verify this place. Please try again.", 503);
   }
+
+  if (!Array.isArray(payload) || payload.length === 0) return null;
+  return payload[0] as OSMResult;
 }
 
 function normalizeOsmResult(
