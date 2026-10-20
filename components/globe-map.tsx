@@ -27,7 +27,7 @@ type GlobeMapProps = {
 
 const MAP_STYLE =
   process.env.NEXT_PUBLIC_MAP_STYLE_URL ||
-  "https://tiles.openfreemap.org/styles/dark";
+  "https://tiles.openfreemap.org/styles/liberty";
 
 const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(
   function GlobeMap({ onStatusChange, onMapClick }, ref) {
