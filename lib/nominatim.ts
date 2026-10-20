@@ -81,7 +81,7 @@ async function reserveGlobalRequestSlot(db: Db): Promise<void> {
  * A local process timer cannot enforce the global per-application limit when
  * requests run in separate serverless instances.
  */
-async function requestJson(db: Db, url: URL): Promise<unknown> {
+export async function fetchNominatimJson(db: Db, url: URL): Promise<unknown> {
   await reserveGlobalRequestSlot(db);
 
   const controller = new AbortController();
@@ -175,7 +175,7 @@ export async function searchNominatim(db: Db, rawQuery: string): Promise<Nominat
   url.searchParams.set("limit", "6");
   url.searchParams.set("accept-language", "en");
 
-  const payload = await requestJson(db, url);
+  const payload = await fetchNominatimJson(db, url);
   if (!Array.isArray(payload)) {
     throw new NominatimError("The map search returned an unexpected response.", 503);
   }
