@@ -248,7 +248,7 @@ The default map style is OpenFreeMap's dark style. To test another compatible Ma
 NEXT_PUBLIC_MAP_STYLE_URL=https://tiles.openfreemap.org/styles/liberty
 ```
 
-Do not commit real secrets or private environment files. Place search and server-side place verification use the public OpenStreetMap Nominatim service only for low-volume prototype testing. The server caches place geometry in MongoDB and reserves lookup slots through MongoDB to avoid concurrent Vercel functions exceeding the public service's request rate. This is not a production-ready geocoding backend.
+Do not commit real secrets or private environment files. Place search, map-tap reverse lookup, and server-side place verification use the public OpenStreetMap Nominatim service only for low-volume prototype testing. When MongoDB is configured, search results and reverse lookups are cached there and requests reserve a shared Nominatim request slot through MongoDB so concurrent Vercel functions do not independently burst against the public service. Without MongoDB, the explorer falls back to a process-local cache and throttle for testing by a small number of users; it is not production-ready or globally coordinated.
 
 ### Validate the application
 
@@ -359,7 +359,7 @@ The first prototype should not require paid advertisements, payments, ticketing,
 - [ ] Account authentication and profiles.
 - [x] Initial MongoDB data model and persistent local posts (replies remain planned).
 - [ ] Public browsing of community content.
-- [ ] Location-presence check for LIVE HERE posting.
+- [x] Initial location-presence check for LIVE HERE posting (prototype-grade, with server-fetched OSM geometry; production anti-spoofing remains planned).
 - [ ] Text posts, replies, and basic polls.
 - [ ] Reporting, blocking, and basic moderation controls.
 
