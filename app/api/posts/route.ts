@@ -86,7 +86,6 @@ export async function GET(request: Request) {
         { $addFields: { replyCount: { $size: "$replyRecords" } } },
         {
           $project: {
-            replyRecords: 0,
             body: 1,
             type: 1,
             placeKey: 1,
