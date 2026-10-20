@@ -44,6 +44,8 @@ export async function getDatabase(): Promise<Db> {
       db.collection("sessions").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "sessions_expiry_ttl" }),
       db.collection("posts").createIndex({ placeKey: 1, createdAt: -1 }, { name: "posts_place_recent" }),
       db.collection("posts").createIndex({ authorId: 1, createdAt: -1 }, { name: "posts_author_recent" }),
+      db.collection("replies").createIndex({ postId: 1, createdAt: 1 }, { name: "replies_post_recent" }),
+      db.collection("replies").createIndex({ authorId: 1, createdAt: -1 }, { name: "replies_author_recent" }),
       db.collection("communities").createIndex({ placeKey: 1 }, { unique: true, name: "communities_place_key_unique" }),
       db.collection("placeVerificationCache").createIndex({ placeKey: 1 }, { unique: true, name: "place_verification_place_key_unique" }),
       db.collection("placeVerificationCache").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "place_verification_expiry_ttl" }),
