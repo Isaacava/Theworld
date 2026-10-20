@@ -44,13 +44,28 @@ type CachedReverse = {
 const ENDPOINT = "https://nominatim.openstreetmap.org";
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_LOOKUP_WAIT_MS = 4000;
+const memorySearchCache = new Map<string, { results: NominatimPlace[]; expiresAt: number }>();
+const memoryReverseCache = new Map<string, { place: NominatimPlace | null; expiresAt: number }>();
+let localLastRequestStartedAt = 0;
+let localRequestQueue: Promise<void> = Promise.resolve();
 
 function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-async function reserveGlobalRequestSlot(db: Db): Promise<void> {
+async function reserveGlobalRequestSlot(db: Db | null): Promise<void> {
   const now = Date.now();
+  if (!db) {
+    const task = localRequestQueue.then(async () => {
+      const delay = Math.max(0, 1100 - (Date.now() - localLastRequestStartedAt));
+      if (delay > 0) await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      localLastRequestStartedAt = Date.now();
+    });
+    localRequestQueue = task.catch(() => undefined);
+    await task;
+    return;
+  }
+
   const collection = db.collection<{ _id: string; nextAllowedAt: number }>("geocoderRateLimits");
   const previous = await collection.findOneAndUpdate(
     { _id: "nominatim-global" },
@@ -81,7 +96,7 @@ async function reserveGlobalRequestSlot(db: Db): Promise<void> {
  * A local process timer cannot enforce the global per-application limit when
  * requests run in separate serverless instances.
  */
-export async function fetchNominatimJson(db: Db, url: URL): Promise<unknown> {
+export async function fetchNominatimJson(db: Db | null, url: URL): Promise<unknown> {
   await reserveGlobalRequestSlot(db);
 
   const controller = new AbortController();
@@ -155,7 +170,7 @@ function normalizeResult(value: unknown): NominatimPlace | null {
   };
 }
 
-export async function searchNominatim(db: Db, rawQuery: string): Promise<NominatimPlace[]> {
+export async function searchNominatim(db: Db | null, rawQuery: string): Promise<NominatimPlace[]> {
   const query = rawQuery.trim().replace(/\s+/g, " ");
   if (query.length < 2) return [];
   if (query.length > 160) {
@@ -163,9 +178,11 @@ export async function searchNominatim(db: Db, rawQuery: string): Promise<Nominat
   }
 
   const cacheKey = hash(query.toLocaleLowerCase());
-  const cache = db.collection<CachedSearch>("geocoderSearchCache");
+  const cache = db?.collection<CachedSearch>("geocoderSearchCache");
   const now = new Date();
-  const cached = await cache.findOne({ cacheKey, expiresAt: { $gt: now } });
+  const memoryCached = memorySearchCache.get(cacheKey);
+  if (memoryCached && memoryCached.expiresAt > now.getTime()) return memoryCached.results;
+  const cached = cache ? await cache.findOne({ cacheKey, expiresAt: { $gt: now } }) : null;
   if (cached && Array.isArray(cached.results)) return cached.results;
 
   const url = new URL("/search", ENDPOINT);
@@ -180,23 +197,26 @@ export async function searchNominatim(db: Db, rawQuery: string): Promise<Nominat
     throw new NominatimError("The map search returned an unexpected response.", 503);
   }
   const results = payload.map(normalizeResult).filter((item): item is NominatimPlace => item !== null);
-  await cache.updateOne(
-    { cacheKey },
-    {
-      $set: {
-        cacheKey,
-        results,
-        fetchedAt: now,
-        expiresAt: new Date(now.getTime() + CACHE_TTL_MS),
+  memorySearchCache.set(cacheKey, { results, expiresAt: now.getTime() + CACHE_TTL_MS });
+  if (cache) {
+    await cache.updateOne(
+      { cacheKey },
+      {
+        $set: {
+          cacheKey,
+          results,
+          fetchedAt: now,
+          expiresAt: new Date(now.getTime() + CACHE_TTL_MS),
+        },
       },
-    },
-    { upsert: true },
-  );
+      { upsert: true },
+    );
+  }
   return results;
 }
 
 export async function reverseNominatim(
-  db: Db,
+  db: Db | null,
   latitude: number,
   longitude: number,
 ): Promise<NominatimPlace | null> {
@@ -210,9 +230,11 @@ export async function reverseNominatim(
   // Hash rounded coordinates to avoid storing map-tap coordinates as cache keys.
   const coordinateKey = `${latitude.toFixed(4)},${longitude.toFixed(4)}`;
   const cacheKey = hash(coordinateKey);
-  const cache = db.collection<CachedReverse>("geocoderReverseCache");
+  const cache = db?.collection<CachedReverse>("geocoderReverseCache");
   const now = new Date();
-  const cached = await cache.findOne({ cacheKey, expiresAt: { $gt: now } });
+  const memoryCached = memoryReverseCache.get(cacheKey);
+  if (memoryCached && memoryCached.expiresAt > now.getTime()) return memoryCached.place;
+  const cached = cache ? await cache.findOne({ cacheKey, expiresAt: { $gt: now } }) : null;
   if (cached) return cached.place;
 
   const url = new URL("/reverse", ENDPOINT);
@@ -225,17 +247,20 @@ export async function reverseNominatim(
 
   const payload = await requestJson(db, url);
   const place = normalizeResult(payload);
-  await cache.updateOne(
-    { cacheKey },
-    {
-      $set: {
-        cacheKey,
-        place,
-        fetchedAt: now,
-        expiresAt: new Date(now.getTime() + CACHE_TTL_MS),
+  memoryReverseCache.set(cacheKey, { place, expiresAt: now.getTime() + CACHE_TTL_MS });
+  if (cache) {
+    await cache.updateOne(
+      { cacheKey },
+      {
+        $set: {
+          cacheKey,
+          place,
+          fetchedAt: now,
+          expiresAt: new Date(now.getTime() + CACHE_TTL_MS),
+        },
       },
-    },
-    { upsert: true },
-  );
+      { upsert: true },
+    );
+  }
   return place;
 }
