@@ -119,7 +119,6 @@ const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(
             maxZoom: 19,
             pitch: 0,
             bearing: 0,
-            projection: { type: "globe" },
             attributionControl: false,
             renderWorldCopies: false,
           });
