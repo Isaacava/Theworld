@@ -154,7 +154,15 @@ export async function POST(request: Request) {
     );
   }
 
-  const user = await getCurrentUser();
+  let user;
+  try {
+    user = await getCurrentUser();
+  } catch {
+    return NextResponse.json(
+      { error: "The account service is temporarily unavailable. Please try again." },
+      { status: 503 },
+    );
+  }
   if (!user) {
     return NextResponse.json({ error: "Sign in before posting to a local community." }, { status: 401 });
   }
@@ -246,7 +254,13 @@ export async function POST(request: Request) {
           coordinates: place.coordinates,
           createdAt: presenceVerifiedAt,
         },
-        $set: { lastActiveAt: presenceVerifiedAt },
+        $set: {
+          lastActiveAt: presenceVerifiedAt,
+          name: place.name,
+          displayName: place.displayName,
+          kind: place.kind,
+          coordinates: place.coordinates,
+        },
       },
       { upsert: true },
     );
