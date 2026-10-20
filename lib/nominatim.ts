@@ -53,6 +53,15 @@ function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function setBounded<K, V>(cache: Map<K, V>, key: K, value: V, maximum = 250): void {
+  cache.set(key, value);
+  while (cache.size > maximum) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
 async function reserveGlobalRequestSlot(db: Db | null): Promise<void> {
   const now = Date.now();
   if (!db) {
@@ -197,7 +206,7 @@ export async function searchNominatim(db: Db | null, rawQuery: string): Promise<
     throw new NominatimError("The map search returned an unexpected response.", 503);
   }
   const results = payload.map(normalizeResult).filter((item): item is NominatimPlace => item !== null);
-  memorySearchCache.set(cacheKey, { results, expiresAt: now.getTime() + CACHE_TTL_MS });
+  setBounded(memorySearchCache, cacheKey, { results, expiresAt: now.getTime() + CACHE_TTL_MS });
   if (cache) {
     await cache.updateOne(
       { cacheKey },
@@ -247,7 +256,7 @@ export async function reverseNominatim(
 
   const payload = await requestJson(db, url);
   const place = normalizeResult(payload);
-  memoryReverseCache.set(cacheKey, { place, expiresAt: now.getTime() + CACHE_TTL_MS });
+  setBounded(memoryReverseCache, cacheKey, { place, expiresAt: now.getTime() + CACHE_TTL_MS });
   if (cache) {
     await cache.updateOne(
       { cacheKey },
