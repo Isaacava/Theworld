@@ -248,7 +248,7 @@ The default map style is OpenFreeMap's dark style. To test another compatible Ma
 NEXT_PUBLIC_MAP_STYLE_URL=https://tiles.openfreemap.org/styles/liberty
 ```
 
-Do not commit real secrets or private environment files. The Nominatim place search in this prototype uses the public OpenStreetMap service only for low-volume testing; it is not a production-ready geocoding backend.
+Do not commit real secrets or private environment files. Place search and server-side place verification use the public OpenStreetMap Nominatim service only for low-volume prototype testing. The server caches place geometry in MongoDB and reserves lookup slots through MongoDB to avoid concurrent Vercel functions exceeding the public service's request rate. This is not a production-ready geocoding backend.
 
 ### Validate the application
 
@@ -298,9 +298,9 @@ The application creates required indexes when the database is first used. If log
 
 - Place pages use the external map feature ID (for example `way-12345`) as a stable community key.
 - Register and sign in use an opaque, server-side session in an HttpOnly cookie; passwords are hashed with Node's scrypt function.
-- Posting requires a browser location reading and a server-side distance check against place coordinates supplied by the prototype UI. This is a development gate, **not a production-grade proof of physical presence**; place coordinates and browser geolocation can be manipulated. Do not treat the current implementation as sufficient for a public launch.
-- Raw browser coordinates are not stored in community posts or published to other users.
-- Email verification, robust login/register rate-limiting, moderation queues, and stronger server-verified map geometry are not implemented yet. Keep this test deployment access-controlled until those controls are completed.
+- Posting requires a browser location reading and a server-side lookup of the selected OpenStreetMap feature. Presence distance is checked against canonical server-fetched OSM point/line/polygon geometry, not the coordinates sent by the browser.
+- Raw browser coordinates are not stored in community posts or published to other users. The post stores a verification timestamp and method, not the user's location.
+- This is still a prototype safeguard, **not production-grade proof of physical presence**. Browser GPS can be spoofed, and the public Nominatim service is not a production geocoder. Email verification, robust login/register rate-limiting, a moderation queue, and stronger anti-abuse controls are not implemented yet. Keep this test deployment access-controlled until those controls are completed.
 
 ### Automated checks
 
