@@ -79,6 +79,18 @@ type CommunityPost = {
   author: { username: string; displayName: string };
   createdAt: string;
   presenceVerifiedAt: string | null;
+  replyCount: number;
+};
+
+type CommunityReply = {
+  id: string;
+  postId: string;
+  body: string;
+  placeKey: string;
+  placeName: string;
+  author: { username: string; displayName: string };
+  createdAt: string;
+  presenceVerifiedAt: string | null;
 };
 
 function formatPostTime(value: string): string {
@@ -168,7 +180,7 @@ export default function HomePage() {
   const replyRequestRef = useRef(0);
 
   const placeSupportsLiveHere = Boolean(
-    selectedPlace && /^(node|way|relation)-[1-9]\\d{0,17}$/.test(selectedPlace.id),
+    selectedPlace && /^(node|way|relation)-[1-9]\d{0,17}$/.test(selectedPlace.id),
   );
 
   const showNotice = useCallback((message: string) => {
@@ -197,7 +209,7 @@ export default function HomePage() {
   useEffect(() => {
     let active = true;
     const placeKey = selectedPlace?.id || "";
-    if (!placeKey || !/^(node|way|relation)-[1-9]\\d{0,17}$/.test(placeKey)) {
+    if (!placeKey || !/^(node|way|relation)-[1-9]\d{0,17}$/.test(placeKey)) {
       setCommunityPosts([]);
       setCommunityError("");
       setCommunityLoading(false);
