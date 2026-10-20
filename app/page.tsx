@@ -792,7 +792,7 @@ export default function HomePage() {
           <span className="brand-mark"><Globe size={22} strokeWidth={1.7} /></span>
           <span className="brand-copy">
             <strong>THE WORLD</strong>
-            <small>THE PLACES THAT CONNECT US</small>
+            <small>Places and local conversations</small>
           </span>
         </button>
 
@@ -811,7 +811,7 @@ export default function HomePage() {
               onFocus={() => {
                 if (searchResults.length || searchError) setSearchOpen(true);
               }}
-              placeholder="Search any place on Earth..."
+              placeholder="Search a city, street or landmark"
               aria-label="Search places around the world"
               autoComplete="off"
             />
@@ -872,7 +872,7 @@ export default function HomePage() {
         </div>
 
         <div className="topbar-right">
-          <span className="prototype-pill"><span /> PROTOTYPE</span>
+          <span className="preview-label">Preview</span>
           <button
             className="avatar-mark account-button"
             type="button"
@@ -895,10 +895,10 @@ export default function HomePage() {
       </header>
 
       <aside className="left-panel glass-panel">
-        <div className="panel-kicker"><span className="kicker-dot" /> YOUR WORLD, OPEN</div>
-        <h1>Every place has<br />a <em>story.</em></h1>
+        <div className="panel-kicker">EXPLORE THE MAP</div>
+        <h1>Find a place.<br /><em>Meet its people.</em></h1>
         <p className="intro-copy">
-          Explore the real Earth. Discover the conversations connected to its places.
+          Browse the map, open a place, and see what people there are sharing.
         </p>
 
         <nav className="primary-nav" aria-label="Main navigation">
@@ -917,8 +917,7 @@ export default function HomePage() {
             onClick={() => handleNavClick("nearby")}
           >
             <LocateFixed size={18} />
-            <span>Explore nearby</span>
-            <span className="nav-new">HERE</span>
+            <span>Nearby</span>
           </button>
           <button
             type="button"
@@ -935,10 +934,9 @@ export default function HomePage() {
 
         <div className="section-heading">
           <div>
-            <span className="eyebrow">A WORLD TO EXPLORE</span>
-            <h2>Start somewhere</h2>
+            <span className="eyebrow">QUICK PICKS</span>
+            <h2>Places to start</h2>
           </div>
-          <Sparkles size={17} className="section-sparkle" />
         </div>
 
         <div className="quick-places">
@@ -950,7 +948,7 @@ export default function HomePage() {
               onClick={() => chooseQuickPlace(place)}
             >
               <span className={`place-symbol place-symbol-${index + 1}`}>
-                {index === 0 ? "LA" : index === 1 ? "LDN" : index === 2 ? "NRB" : "TK"}
+                <MapPin size={15} aria-hidden="true" />
               </span>
               <span className="quick-place-copy">
                 <strong>{place.name}</strong>
@@ -961,23 +959,17 @@ export default function HomePage() {
           ))}
         </div>
 
-        <div className="pulse-card">
-          <div className="pulse-card-top">
-            <span className="pulse-icon"><Radio size={16} /></span>
-            <span className="eyebrow">WORLD PULSE</span>
-            <span className="pulse-status">PREVIEW</span>
-          </div>
-          <strong>Your world is waiting.</strong>
-          <p>Live conversations will appear here when community services are connected.</p>
-          <div className="pulse-empty">
-            <span className="pulse-empty-ring"><MessageCircle size={16} /></span>
-            <span>No live activity in this test build</span>
+        <div className="place-note">
+          <span className="place-note-icon"><MessageCircle size={16} /></span>
+          <div>
+            <strong>Conversations stay local</strong>
+            <p>Posts belong to a mapped place. Sharing one asks you to check in nearby.</p>
           </div>
         </div>
 
         <div className="panel-footnote">
           <ShieldCheck size={14} />
-          <span>Explore anywhere. Your exact location is never shown on the map.</span>
+          <span>Your device coordinates are never shown to other people.</span>
         </div>
       </aside>
 
@@ -1033,7 +1025,7 @@ export default function HomePage() {
           <div className="place-panel-content">
             <div className="place-panel-header">
               <div>
-                <span className="eyebrow"><span className="location-eyebrow-dot" /> PLACE SELECTED</span>
+                <span className="eyebrow">PLACE DETAILS</span>
                 <div className="place-type-line">{selectedPlace.kind}</div>
               </div>
               <button type="button" className="icon-button" onClick={() => { setSelectedPlace(null); setMobilePanelOpen(false); }} aria-label="Close place details">
@@ -1061,9 +1053,9 @@ export default function HomePage() {
               <button
                 type="button"
                 className="secondary-action"
-                onClick={() => showNotice("Community posting and presence verification are the next build milestone.")}
+                onClick={() => document.getElementById("community-composer")?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
               >
-                <MessageCircle size={16} /> Community preview
+                <MessageCircle size={16} /> Add a post
               </button>
             </div>
 
@@ -1071,20 +1063,15 @@ export default function HomePage() {
 
             <div className="community-preview-heading">
               <div>
-                <span className="eyebrow">LIVE HERE / COMMUNITY</span>
-                <h3>{communityPosts.length > 0 ? `${communityPosts.length} recent conversation${communityPosts.length === 1 ? "" : "s"}` : "Start the conversation"}</h3>
+                <span className="eyebrow">LOCAL COMMUNITY</span>
+                <h3>{communityPosts.length > 0 ? "Recent conversations" : "Start the conversation"}</h3>
               </div>
-              <span className="community-preview-symbol"><Radio size={18} /></span>
+              <span className="community-count">{communityPosts.length}</span>
             </div>
 
             {!placeSupportsLiveHere ? (
               <div className="community-status-card">
-                <span className="status-line"><span className="status-dot status-dot-pending" /> PLACE PREVIEW</span>
-                <p>Choose a named street or mapped place from search, or tap a named feature on the map, to open its live community. Major-city shortcuts are for exploration only.</p>
-                <div className="community-status-footer">
-                  <span><ShieldCheck size={14} /> No location is published</span>
-                  <span>EXPLORE</span>
-                </div>
+                <p>Choose a named street, venue or neighbourhood to open its community. A map point without a named feature can be explored, but cannot host posts.</p>
               </div>
             ) : communityLoading ? (
               <div className="community-loading-card">
@@ -1101,9 +1088,8 @@ export default function HomePage() {
               </div>
             ) : communityPosts.length === 0 ? (
               <div className="community-empty-card">
-                <span className="community-empty-icon"><MessageCircle size={19} /></span>
-                <strong>No conversations here yet.</strong>
-                <p>Once MongoDB is connected, the first verified local contribution can start this place's community.</p>
+                <strong>No conversations yet</strong>
+                <p>Be the first to share something useful from this place.</p>
               </div>
             ) : (
               <div className="community-post-list">
@@ -1218,7 +1204,7 @@ export default function HomePage() {
               <div className="post-composer-heading">
                 <span className="composer-icon"><MessageCircle size={16} /></span>
                 <div>
-                  <strong>Add your voice</strong>
+                  <strong>Add to this community</strong>
                   <small>{sessionUser ? `Posting as @${sessionUser.username}` : "Sign in to contribute to the community"}</small>
                 </div>
               </div>
@@ -1270,30 +1256,29 @@ export default function HomePage() {
           </div>
         ) : (
           <div className="welcome-panel-content">
-            <div className="welcome-orb"><Globe size={31} strokeWidth={1.2} /><span /></div>
-            <span className="eyebrow">THE WORLD EXPLORER</span>
-            <h2>More than a map.<br /><em>A world of stories.</em></h2>
+            <span className="eyebrow">WELCOME TO THE WORLD</span>
+            <h2>Where would<br />you like to go?</h2>
             <p className="welcome-copy">
-              Find a real place and step into the community that will grow around it.
+              Search for a city, street or landmark. Its place panel opens beside the map.
             </p>
             <div className="welcome-instruction">
               <span className="instruction-number">01</span>
-              <span><strong>Search or tap the map</strong><small>Choose a street, city, landmark, or point on Earth.</small></span>
+              <span><strong>Find a place</strong><small>Search above, or click a named feature on the map.</small></span>
               <Search size={17} />
             </div>
             <div className="welcome-instruction">
               <span className="instruction-number">02</span>
-              <span><strong>Open a place</strong><small>Fly straight to it on the globe.</small></span>
+              <span><strong>Explore its details</strong><small>Read the address and save places you want to revisit.</small></span>
               <MapPin size={17} />
             </div>
             <div className="welcome-instruction">
               <span className="instruction-number">03</span>
-              <span><strong>Explore its community</strong><small>Local conversations are the next milestone.</small></span>
+              <span><strong>Join a conversation</strong><small>Posting and replying asks you to confirm you're nearby.</small></span>
               <MessageCircle size={17} />
             </div>
             <div className="welcome-tip">
               <span className="tip-icon"><ShieldCheck size={15} /></span>
-              <p>Map exploration works without location permission. Your location is only requested when you choose to explore nearby.</p>
+              <p>You can browse without location permission. Your device location is requested only when you post or reply.</p>
             </div>
             <button className="welcome-cta" type="button" onClick={() => chooseQuickPlace(QUICK_PLACES[0])}>
               Explore Lagos <ArrowRight size={17} />
@@ -1305,18 +1290,18 @@ export default function HomePage() {
       <div className="map-status" aria-live="polite">
         <span className={mapStatus === "ready" ? "map-status-dot ready" : "map-status-dot"} />
         {mapStatus === "ready"
-          ? "EARTH ONLINE"
+          ? "Map ready"
           : mapStatus === "error"
-            ? "MAP CONNECTION ISSUE"
-            : "CONNECTING TO EARTH"}
+            ? "Map unavailable"
+            : "Loading map"}
       </div>
 
       {mapStatus === "error" && (
         <div className="map-error-card">
           <Globe size={19} />
           <div>
-            <strong>Earth is taking a break.</strong>
-            <p>We couldn't load the map. Check your connection and refresh the page to try again.</p>
+            <strong>Map unavailable</strong>
+            <p>Check your connection, then refresh to try again.</p>
           </div>
         </div>
       )}
@@ -1338,12 +1323,7 @@ export default function HomePage() {
         </button>
       </div>
 
-      <div className="map-bottom-caption">
-        <span className="caption-pulse" />
-        <span>REAL PLACES. REAL PEOPLE. ONE WORLD.</span>
-      </div>
-
-      {notice && (
+       {notice && (
         <div className="toast-message" role="status">
           <span className="toast-check"><Check size={15} /></span>
           <span>{notice}</span>
@@ -1355,11 +1335,7 @@ export default function HomePage() {
         <Navigation size={14} /> Tap the map or search for any place
       </div>
 
-      <footer className="prototype-footer">
-        <span>THE WORLD · EXPLORER PREVIEW</span>
-        <span>MAP DATA: OPENFREEMAP / OPENSTREETMAP</span>
-      </footer>
-      {authModalOpen && (
+       {authModalOpen && (
         <div className="auth-backdrop" role="presentation" onMouseDown={(event) => {
           if (event.target === event.currentTarget && !authBusy) setAuthModalOpen(false);
         }}>
