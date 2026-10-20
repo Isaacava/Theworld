@@ -749,9 +749,9 @@ button:disabled { cursor: not-allowed; }
   width: var(--details-width);
   overflow: auto;
   border-radius: var(--radius-panel);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(7px);
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
   transition: opacity 160ms ease, transform 160ms ease;
   scrollbar-width: thin;
   scrollbar-color: #cbd3ca transparent;
@@ -1796,7 +1796,7 @@ button:disabled { cursor: not-allowed; }
 .map-controls {
   position: absolute;
   z-index: 8;
-  right: 16px;
+  right: calc(var(--details-width) + 25px);
   bottom: 24px;
   display: flex;
   flex-direction: column;
@@ -1807,10 +1807,6 @@ button:disabled { cursor: not-allowed; }
   background: var(--surface);
   box-shadow: 0 3px 12px rgba(32, 42, 37, 0.1);
   transition: right 160ms ease;
-}
-
-.world-shell:has(.right-panel-open) .map-controls {
-  right: calc(var(--details-width) + 25px);
 }
 
 .map-controls button {
@@ -2228,7 +2224,7 @@ button:disabled { cursor: not-allowed; }
   .maplibregl-ctrl-bottom-left { left: 12px; }
   .map-status { left: 12px; }
 
-  .world-shell:has(.right-panel-open) .map-controls { right: 355px; }
+  .map-controls { right: 355px; }
   .prototype-footer { display: none; }
 }
 
