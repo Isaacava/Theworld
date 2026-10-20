@@ -15,11 +15,38 @@ export type PlaceSearchResult = {
 };
 
 const SEARCH_ENDPOINT = "https://nominatim.openstreetmap.org/search";
+const REVERSE_ENDPOINT = "https://nominatim.openstreetmap.org/reverse";
 const resultCache = new Map<string, PlaceSearchResult[]>();
+const reverseCache = new Map<string, PlaceSearchResult | null>();
 let lastRequestStartedAt = 0;
+let requestQueue: Promise<void> = Promise.resolve();
 
 const wait = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
+async function fetchNominatim(url: URL): Promise<unknown> {
+  const task = requestQueue.then(async () => {
+    const delay = Math.max(0, 1100 - (Date.now() - lastRequestStartedAt));
+    if (delay > 0) await wait(delay);
+    lastRequestStartedAt = Date.now();
+  });
+  requestQueue = task.catch(() => undefined);
+  await task;
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: { "Accept-Language": "en" },
+    cache: "no-store",
+    referrerPolicy: "strict-origin-when-cross-origin",
+  });
+  if (response.status === 429) {
+    throw new Error("Place search is temporarily busy. Please wait a moment before trying again.");
+  }
+  if (!response.ok) {
+    throw new Error("We couldn't look up this place right now. Please try again.");
+  }
+  return response.json() as Promise<unknown>;
+}
 
 /**
  * Prototype-only place search using the public Nominatim service.
@@ -44,13 +71,6 @@ export async function searchPlaces(
     return cached;
   }
 
-  const delay = Math.max(0, 1100 - (Date.now() - lastRequestStartedAt));
-  if (delay > 0) {
-    await wait(delay);
-  }
-
-  lastRequestStartedAt = Date.now();
-
   const url = new URL(SEARCH_ENDPOINT);
   url.searchParams.set("q", query);
   url.searchParams.set("format", "jsonv2");
@@ -58,22 +78,7 @@ export async function searchPlaces(
   url.searchParams.set("limit", "6");
   url.searchParams.set("accept-language", "en");
 
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    headers: { "Accept-Language": "en" },
-    cache: "no-store",
-  });
-
-  if (response.status === 429) {
-    throw new Error(
-      "Place search is temporarily busy. Please wait a moment before trying again.",
-    );
-  }
-  if (!response.ok) {
-    throw new Error("We couldn't search places right now. Please try again.");
-  }
-
-  const payload: unknown = await response.json();
+  const payload: unknown = await fetchNominatim(url);
   if (!Array.isArray(payload)) {
     throw new Error("The place search returned an unexpected response.");
   }
@@ -88,6 +93,47 @@ export async function searchPlaces(
 
   resultCache.set(cacheKey, results);
   return results;
+}
+
+
+/**
+ * Reverse geocode a map tap into a nearby named feature. Results are cached
+ * by rounded coordinates. This is a low-volume prototype integration only.
+ */
+export async function reversePlace(latitude: number, longitude: number): Promise<PlaceSearchResult | null> {
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+      !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    throw new Error("That map position is not valid.");
+  }
+
+  const cacheKey = `${latitude.toFixed(4)},${longitude.toFixed(4)}`;
+  if (reverseCache.has(cacheKey)) return reverseCache.get(cacheKey) ?? null;
+
+  const url = new URL(REVERSE_ENDPOINT);
+  url.searchParams.set("lat", String(latitude));
+  url.searchParams.set("lon", String(longitude));
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("zoom", "18");
+  url.searchParams.set("accept-language", "en");
+
+  const payload = await fetchNominatim(url);
+  if (!payload || typeof payload !== "object" ||
+      !("display_name" in payload) ||
+      typeof (payload as { display_name?: unknown }).display_name !== "string") {
+    reverseCache.set(cacheKey, null);
+    return null;
+  }
+
+  const item = payload as PlaceSearchResult;
+  if (typeof item.lat !== "string" || typeof item.lon !== "string" ||
+      !Number.isFinite(Number(item.lat)) || !Number.isFinite(Number(item.lon))) {
+    reverseCache.set(cacheKey, null);
+    return null;
+  }
+
+  reverseCache.set(cacheKey, item);
+  return item;
 }
 
 export function getPlaceTitle(place: PlaceSearchResult): string {
