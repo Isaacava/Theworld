@@ -112,9 +112,6 @@ button:disabled {
   color: #dce8ef !important;
 }
 
-.maplibregl-ctrl-attrib-button {
-  display: none !important;
-}
 
 .world-map-marker {
   position: relative;
