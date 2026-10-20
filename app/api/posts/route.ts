@@ -212,7 +212,10 @@ export async function POST(request: Request) {
     // by the browser. Resolve the OSM ID on the server and use canonical data.
     const place = await getCanonicalOsmPlace(db, placeKey);
     const currentCoordinates: [number, number] = [location.longitude, location.latitude];
-    const radius = allowedRadius(place.kind);
+    const isAreaGeometry = place.geojson.type === "Polygon" || place.geojson.type === "MultiPolygon";
+    // Polygon interiors already represent the allowed area. Do not allow the
+    // broad "city radius" outside an area's mapped boundary.
+    const radius = isAreaGeometry ? 0 : allowedRadius(place.kind);
     let distanceMeters: number;
 
     try {
