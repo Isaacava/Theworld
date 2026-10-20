@@ -1005,7 +1005,7 @@ export default function HomePage() {
               )}
               <div className="presence-note">
                 <ShieldCheck size={13} />
-                <span>Your exact coordinates are not published. This prototype uses a proximity check against the selected map point; it is not proof against GPS spoofing.</span>
+                <span>Your exact coordinates are not published. The server checks the mapped OSM geometry. Browser GPS can still be spoofed, so this remains a prototype safeguard, not security-grade proof.</span>
               </div>
             </div>
           </div>
