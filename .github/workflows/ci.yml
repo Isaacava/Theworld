@@ -2,9 +2,9 @@ name: THE WORLD CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, prototype]
   pull_request:
-    branches: [main]
+    branches: [main, prototype]
 
 permissions:
   contents: read
