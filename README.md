@@ -261,6 +261,59 @@ A GitHub Actions workflow runs the type-check and production build on pushes and
 
 ---
 
+## Run the prototype locally
+
+### Requirements
+
+- Node.js 22 or newer (Node.js 24 is used by the current hosted test deployment).
+- npm.
+- A modern browser with WebGL support.
+
+### Install and start
+
+```bash
+git clone https://github.com/Isaacava/Theworld.git
+cd Theworld
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). If using Windows or a shell without `cp`, copy `.env.example` to `.env.local` manually.
+
+### Enable accounts and persistent community posts
+
+The globe and place explorer can run without MongoDB. Accounts and persistent community posts require a MongoDB Atlas connection.
+
+1. Create a database user with access only to the test database and allow access from the test deployment.
+2. Put the connection string in `MONGODB_URI` in `.env.local`.
+3. Set `MONGODB_DB=theworld` (or another database name).
+4. Restart the development server.
+5. Open `/api/health`; `databaseConfigured` should be `true`. The endpoint reports whether the variable exists, not whether database connectivity has already been proven.
+6. In Vercel Project Settings → Environment Variables, add the same variables to the **prototype Preview** environment before testing hosted accounts. Keep secrets out of Git and do not commit `.env.local`.
+
+The application creates required indexes when the database is first used. If login or post creation fails, check the MongoDB connection string, database user's permissions, and Atlas network access rules.
+
+### Community prototype behavior
+
+- Place pages use the external map feature ID (for example `way-12345`) as a stable community key.
+- Register and sign in use an opaque, server-side session in an HttpOnly cookie; passwords are hashed with Node's scrypt function.
+- Posting requires a browser location reading and a server-side distance check against place coordinates supplied by the prototype UI. This is a development gate, **not a production-grade proof of physical presence**; place coordinates and browser geolocation can be manipulated. Do not treat the current implementation as sufficient for a public launch.
+- Raw browser coordinates are not stored in community posts or published to other users.
+- Email verification, robust login/register rate-limiting, moderation queues, and stronger server-verified map geometry are not implemented yet. Keep this test deployment access-controlled until those controls are completed.
+
+### Automated checks
+
+```bash
+npm test
+npm run typecheck
+npm run build
+```
+
+The unit tests cover geographic coordinate validation, great-circle distance calculations, and the prototype's proximity-radius rules. GitHub Actions runs tests, type-checking, and a production build on pushes and pull requests to `main`.
+
+---
+
 ## Development and cost strategy
 
 ### Prototype phase
@@ -295,16 +348,16 @@ The first prototype should not require paid advertisements, payments, ticketing,
 ### Phase 1 — Foundation
 
 - [ ] Repository and product documentation.
-- [ ] Responsive application shell.
-- [ ] Interactive globe and map.
-- [ ] Search for real-world places.
-- [ ] Location/community page structure.
+- [x] Responsive application shell.
+- [x] Interactive globe and map.
+- [x] Search for real-world places.
+- [x] Location/community page structure.
 - [ ] Mobile interaction and loading/error states.
 
 ### Phase 2 — Social MVP
 
 - [ ] Account authentication and profiles.
-- [ ] MongoDB data models for places, communities, posts, and replies.
+- [x] Initial MongoDB data model and persistent local posts (replies remain planned).
 - [ ] Public browsing of community content.
 - [ ] Location-presence check for LIVE HERE posting.
 - [ ] Text posts, replies, and basic polls.
