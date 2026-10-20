@@ -22,6 +22,7 @@ export type GlobeMapHandle = {
 
 type GlobeMapProps = {
   onStatusChange: (status: MapStatus) => void;
+  onMapClick: (coordinates: LngLat) => void;
 };
 
 const MAP_STYLE =
@@ -29,15 +30,17 @@ const MAP_STYLE =
   "https://tiles.openfreemap.org/styles/dark";
 
 const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(
-  function GlobeMap({ onStatusChange }, ref) {
+  function GlobeMap({ onStatusChange, onMapClick }, ref) {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<MapLibreMap | null>(null);
     const markerRef = useRef<MapLibreMarker | null>(null);
     const libraryRef = useRef<typeof import("maplibre-gl") | null>(null);
     const projectionRef = useRef<"globe" | "mercator">("globe");
     const statusCallbackRef = useRef(onStatusChange);
+    const mapClickCallbackRef = useRef(onMapClick);
 
     statusCallbackRef.current = onStatusChange;
+    mapClickCallbackRef.current = onMapClick;
 
     useImperativeHandle(
       ref,
@@ -134,6 +137,10 @@ const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(
 
           map.on("style.load", () => {
             map?.setProjection({ type: projectionRef.current });
+          });
+
+          map.on("click", (event) => {
+            mapClickCallbackRef.current([event.lngLat.lng, event.lngLat.lat]);
           });
 
           map.on("load", () => {
