@@ -492,7 +492,7 @@ export default function HomePage() {
         className={[
           "right-panel",
           "glass-panel",
-          selectedPlace || savedViewOpen ? "right-panel-open" : "",
+          selectedPlace || savedViewOpen || mobilePanelOpen ? "right-panel-open" : "",
           mobilePanelOpen ? "mobile-panel-open" : "",
         ].filter(Boolean).join(" ")}
         aria-label="Selected place details"
@@ -505,7 +505,7 @@ export default function HomePage() {
                 <span className="eyebrow">YOUR COLLECTION</span>
                 <h2>Saved places</h2>
               </div>
-              <button type="button" className="icon-button" onClick={() => setSavedViewOpen(false)} aria-label="Close saved places">
+              <button type="button" className="icon-button" onClick={() => { setSavedViewOpen(false); setMobilePanelOpen(false); }} aria-label="Close saved places">
                 <X size={17} />
               </button>
             </div>
