@@ -103,8 +103,16 @@ const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(
 
     useEffect(() => {
       let cancelled = false;
+      let styleReady = false;
       let failedToLoadTimer: ReturnType<typeof setTimeout> | undefined;
       let map: MapLibreMap | null = null;
+
+      function markStyleReady() {
+        if (cancelled || styleReady) return;
+        styleReady = true;
+        if (failedToLoadTimer) clearTimeout(failedToLoadTimer);
+        statusCallbackRef.current("ready");
+      }
 
       async function initializeMap() {
         try {
@@ -136,24 +144,42 @@ const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(
           );
 
           map.on("style.load", () => {
+            if (cancelled) return;
             map?.setProjection({ type: projectionRef.current });
+            // The map style can be ready and already rendering even while a
+            // slow or failed tile request prevents MapLibre's full "load" event.
+            markStyleReady();
           });
 
           map.on("click", (event) => {
             mapClickCallbackRef.current([event.lngLat.lng, event.lngLat.lat]);
           });
 
-          map.on("load", () => {
-            if (cancelled) return;
-            if (failedToLoadTimer) clearTimeout(failedToLoadTimer);
-            statusCallbackRef.current("ready");
+          map.on("load", markStyleReady);
+
+          map.on("error", (event) => {
+            // Keep a useful clue in the browser console instead of silently
+            // treating every tile/resource failure as a total map failure.
+            if (!styleReady) {
+              console.warn("[THE WORLD] Map resource error:", event.error);
+            }
           });
 
           failedToLoadTimer = setTimeout(() => {
-            if (!cancelled) statusCallbackRef.current("error");
-          }, 20000);
-        } catch {
-          if (!cancelled) statusCallbackRef.current("error");
+            if (cancelled || styleReady) return;
+
+            if (map?.isStyleLoaded()) {
+              markStyleReady();
+              return;
+            }
+
+            statusCallbackRef.current("error");
+          }, 30000);
+        } catch (error) {
+          if (!cancelled) {
+            console.error("[THE WORLD] Could not initialize the map:", error);
+            statusCallbackRef.current("error");
+          }
         }
       }
 
@@ -171,7 +197,13 @@ const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(
       };
     }, []);
 
-    return <div ref={containerRef} className="globe-map-canvas" aria-label="Interactive map of the world" />;
+    return (
+      <div
+        ref={containerRef}
+        className="globe-map-canvas"
+        aria-label="Interactive map of the world"
+      />
+    );
   },
 );
 
