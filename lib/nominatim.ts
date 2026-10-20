@@ -254,7 +254,7 @@ export async function reverseNominatim(
   url.searchParams.set("zoom", "18");
   url.searchParams.set("accept-language", "en");
 
-  const payload = await requestJson(db, url);
+  const payload = await fetchNominatimJson(db, url);
   const place = normalizeResult(payload);
   setBounded(memoryReverseCache, cacheKey, { place, expiresAt: now.getTime() + CACHE_TTL_MS });
   if (cache) {
