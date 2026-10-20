@@ -42,6 +42,7 @@ function publicPost(document: Record<string, unknown>) {
     presenceVerifiedAt: document.presenceVerifiedAt instanceof Date
       ? document.presenceVerifiedAt.toISOString()
       : null,
+    replyCount: typeof document.replyCount === "number" ? document.replyCount : 0,
   };
 }
 
@@ -69,19 +70,35 @@ export async function GET(request: Request) {
   try {
     const db = await getDatabase();
     const documents = await db.collection("posts")
-      .find({ placeKey, status: "visible" })
-      .sort({ createdAt: -1 })
-      .limit(30)
-      .project({
-        body: 1,
-        type: 1,
-        placeKey: 1,
-        placeName: 1,
-        authorUsername: 1,
-        authorDisplayName: 1,
-        createdAt: 1,
-        presenceVerifiedAt: 1,
-      })
+      .aggregate([
+        { $match: { placeKey, status: "visible" } },
+        { $sort: { createdAt: -1 } },
+        { $limit: 30 },
+        {
+          $lookup: {
+            from: "replies",
+            localField: "_id",
+            foreignField: "postId",
+            pipeline: [{ $match: { status: "visible" } }, { $project: { _id: 1 } }],
+            as: "replyRecords",
+          },
+        },
+        { $addFields: { replyCount: { $size: "$replyRecords" } } },
+        {
+          $project: {
+            replyRecords: 0,
+            body: 1,
+            type: 1,
+            placeKey: 1,
+            placeName: 1,
+            authorUsername: 1,
+            authorDisplayName: 1,
+            createdAt: 1,
+            presenceVerifiedAt: 1,
+            replyCount: 1,
+          },
+        },
+      ])
       .toArray();
 
     return NextResponse.json({
