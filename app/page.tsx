@@ -157,6 +157,7 @@ export default function HomePage() {
   const [postBody, setPostBody] = useState("");
   const [postType, setPostType] = useState<CommunityPost["type"]>("thought");
   const [postBusy, setPostBusy] = useState(false);
+  const [postError, setPostError] = useState("");
 
   const placeSupportsLiveHere = Boolean(
     selectedPlace && /^(node|way|relation)-[1-9]\\d{0,17}$/.test(selectedPlace.id),
@@ -288,25 +289,25 @@ export default function HomePage() {
       return;
     }
     if (!placeSupportsLiveHere) {
-      setCommunityError("Choose a named street or mapped place before posting to LIVE HERE.");
+      setPostError("Choose a named street or mapped place before posting to LIVE HERE.");
       return;
     }
     if (authConfigured !== true) {
-      setCommunityError("Community storage is not connected yet. Configure MongoDB before posting.");
+      setPostError("Community storage is not connected yet. Configure MongoDB before posting.");
       return;
     }
     const body = postBody.trim();
     if (body.length < 2 || body.length > 500) {
-      setCommunityError("A post must contain 2–500 characters.");
+      setPostError("A post must contain 2–500 characters.");
       return;
     }
     if (!("geolocation" in navigator)) {
-      setCommunityError("This browser doesn't support location checks. You can still explore public places.");
+      setPostError("This browser doesn't support location checks. You can still explore public places.");
       return;
     }
 
     setPostBusy(true);
-    setCommunityError("");
+    setPostError("");
     showNotice("Checking your location…");
 
     try {
@@ -346,7 +347,7 @@ export default function HomePage() {
           setAuthMode("login");
           setAuthModalOpen(true);
         }
-        setCommunityError(
+        setPostError(
           typeof payload.error === "string"
             ? payload.error
             : "We couldn't publish your post. Please try again.",
@@ -363,11 +364,11 @@ export default function HomePage() {
     } catch (error) {
       const locationError = error as GeolocationPositionError;
       if (locationError?.code === 1) {
-        setCommunityError("Location permission was denied. Allow location access to post here.");
+        setPostError("Location permission was denied. Allow location access to post here.");
       } else if (locationError?.code === 3) {
-        setCommunityError("The location check timed out. Try again where your GPS signal is clearer.");
+        setPostError("The location check timed out. Try again where your GPS signal is clearer.");
       } else {
-        setCommunityError("We couldn't verify your location or reach the server. Please try again.");
+        setPostError("We couldn't verify your location or reach the server. Please try again.");
       }
     } finally {
       setPostBusy(false);
@@ -963,6 +964,7 @@ export default function HomePage() {
                 </div>
               </div>
 
+              {postError && <p className="post-error" role="alert">{postError}</p>}
               {sessionUser ? (
                 <form className="community-post-form" onSubmit={handlePublishPost}>
                   <select
@@ -1005,7 +1007,6 @@ export default function HomePage() {
                 <ShieldCheck size={13} />
                 <span>Your exact coordinates are not published. This prototype uses a proximity check against the selected map point; it is not proof against GPS spoofing.</span>
               </div>
-            </div>
             </div>
           </div>
         ) : (
