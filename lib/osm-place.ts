@@ -49,9 +49,6 @@ const NEGATIVE_CACHE_TTL_MS = 15 * 60 * 1000;
 const MAX_GEOMETRY_BYTES = 512 * 1024;
 const LOOKUP_ENDPOINT = "https://nominatim.openstreetmap.org/lookup";
 
-let lastRequestStartedAt = 0;
-let requestQueue: Promise<void> = Promise.resolve();
-
 function isValidGeoJson(value: unknown): value is GeoJsonGeometry {
   if (!value || typeof value !== "object") return false;
   const geometry = value as { type?: unknown; coordinates?: unknown };
@@ -82,20 +79,44 @@ function pointGeometry(coordinates: [number, number]): GeoJsonGeometry {
   return { type: "Point", coordinates };
 }
 
-async function waitForNominatimSlot(): Promise<void> {
-  const task = requestQueue.then(async () => {
-    const delay = Math.max(0, 1100 - (Date.now() - lastRequestStartedAt));
-    if (delay > 0) {
-      await new Promise<void>((resolve) => setTimeout(resolve, delay));
-    }
-    lastRequestStartedAt = Date.now();
-  });
-  requestQueue = task.catch(() => undefined);
-  await task;
+async function waitForNominatimSlot(db: Db): Promise<void> {
+  // A Mongo-backed reservation serializes lookup starts across Vercel function
+  // instances. A process-local sleep alone would not enforce the public API's
+  // global one-request-per-second guideline in a serverless deployment.
+  const now = Date.now();
+  const collection = db.collection<{ _id: string; nextAllowedAt: number }>("geocoderRateLimits");
+  const previous = await collection.findOneAndUpdate(
+    { _id: "nominatim-global" },
+    [{
+      $set: {
+        nextAllowedAt: {
+          $add: [
+            { $max: [{ $ifNull: ["$nextAllowedAt", now] }, now] },
+            1100,
+          ],
+        },
+      },
+    }],
+    { upsert: true, returnDocument: "before" },
+  );
+
+  const reservedStart = previous?.nextAllowedAt ?? now;
+  const delay = Math.max(0, reservedStart - now);
+  // Avoid consuming most of a short-lived serverless invocation waiting in a
+  // queue. The reserved slot is intentionally allowed to go unused in this case.
+  if (delay > 4000) {
+    throw new PlaceLookupError(
+      "Place verification is busy right now. Wait a moment and try again.",
+      503,
+    );
+  }
+  if (delay > 0) {
+    await new Promise<void>((resolve) => setTimeout(resolve, delay));
+  }
 }
 
-async function lookupOsmFeature(lookupId: string): Promise<OSMResult | null> {
-  await waitForNominatimSlot();
+async function lookupOsmFeature(db: Db, lookupId: string): Promise<OSMResult | null> {
+  await waitForNominatimSlot(db);
 
   const url = new URL(LOOKUP_ENDPOINT);
   url.searchParams.set("osm_ids", lookupId);
@@ -266,7 +287,7 @@ export async function getCanonicalOsmPlace(db: Db, placeKey: string): Promise<Ca
     };
   }
 
-  const result = await lookupOsmFeature(expected.lookupId);
+  const result = await lookupOsmFeature(db, expected.lookupId);
   if (!result) {
     await collection.updateOne(
       { placeKey },
