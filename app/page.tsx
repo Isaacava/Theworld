@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
   Bookmark,
@@ -20,11 +19,9 @@ import {
   Minus,
   Navigation,
   Plus,
-  Radio,
   RotateCcw,
   Search,
   ShieldCheck,
-  Sparkles,
   Send,
   UserRound,
   X,
@@ -1200,7 +1197,7 @@ export default function HomePage() {
               </div>
             )}
 
-            <div className="post-composer-card">
+            <div className="post-composer-card" id="community-composer">
               <div className="post-composer-heading">
                 <span className="composer-icon"><MessageCircle size={16} /></span>
                 <div>
