@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
 import { OSM_FEATURE_KEY } from "@/lib/businesses";
 import { getDatabase, isMongoConfigured } from "@/lib/mongodb";
 import { getCanonicalOsmPlaceMetadata, PlaceLookupError } from "@/lib/osm-place";

@@ -22,14 +22,19 @@ export async function GET(_request: Request, context: RouteContext) {
     const business = await getVerifiedBusiness(db, businessId);
     if (!business) return NextResponse.json({ bookings: [], error: "This business is not verified yet." }, { status: 404 });
     const isOwner = business.ownerId instanceof ObjectId && business.ownerId.equals(new ObjectId(user.id));
-    if (!isOwner) return NextResponse.json({ bookings: [], error: "Only the verified owner can view booking requests." }, { status: 403 });
-    const docs = await db.collection("businessBookings").find({ businessId: new ObjectId(businessId) }).sort({ createdAt: -1 }).limit(100).toArray();
-    return NextResponse.json({ bookings: docs.map((doc) => ({
-      id: String(doc._id), message: String(doc.message ?? ""), requestedFor: String(doc.requestedFor ?? ""),
-      status: String(doc.status ?? "requested"),
-      customer: { username: String(doc.customerUsername ?? "member"), displayName: String(doc.customerDisplayName ?? doc.customerUsername ?? "Member") },
-      createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : new Date(String(doc.createdAt)).toISOString(),
-    })) }, { headers: { "Cache-Control": "no-store" } });
+    const filter = isOwner
+      ? { businessId: new ObjectId(businessId) }
+      : { businessId: new ObjectId(businessId), userId: new ObjectId(user.id) };
+    const docs = await db.collection("businessBookings").find(filter).sort({ createdAt: -1 }).limit(100).toArray();
+    return NextResponse.json({
+      isOwner,
+      bookings: docs.map((doc) => ({
+        id: String(doc._id), message: String(doc.message ?? ""), requestedFor: String(doc.requestedFor ?? ""),
+        status: String(doc.status ?? "requested"),
+        ...(isOwner ? { customer: { username: String(doc.customerUsername ?? "member"), displayName: String(doc.customerDisplayName ?? doc.customerUsername ?? "Member") } } : {}),
+        createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : new Date(String(doc.createdAt)).toISOString(),
+      })),
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch { return NextResponse.json({ error: "Booking requests are temporarily unavailable." }, { status: 503 }); }
 }
 
