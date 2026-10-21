@@ -3736,3 +3736,12 @@ button:disabled { cursor: not-allowed; }
 .nearby-area-activity-empty { padding: 14px; border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--surface-soft); }
 .nearby-area-activity-empty strong { color: var(--text); font-size: 11px; }
 .nearby-area-activity-empty p { margin: 5px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+
+
+/* Search within a place's paginated conversation history */
+.community-search-bar { display: flex; min-width: 0; align-items: center; gap: 8px; margin-bottom: 11px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.community-search-bar:focus-within { border-color: var(--line-strong); box-shadow: 0 0 0 2px rgba(57, 93, 63, .07); }
+.community-search-bar > svg { flex: 0 0 auto; color: var(--muted); }
+.community-search-bar input { width: 100%; min-width: 0; min-height: 39px; padding: 8px 0; color: var(--text); border: 0; outline: 0; background: transparent; font: inherit; font-size: 12px; }
+.community-search-bar input::placeholder { color: var(--quiet); }
+.community-search-bar > button { display: grid; width: 27px; height: 27px; flex: 0 0 auto; place-items: center; color: var(--muted); border: 0; border-radius: 6px; background: var(--surface-soft); cursor: pointer; }

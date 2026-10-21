@@ -271,6 +271,8 @@ export default function HomePage() {
   const [communityTotalCount, setCommunityTotalCount] = useState(0);
   const [communityRefreshVersion, setCommunityRefreshVersion] = useState(0);
   const [communityError, setCommunityError] = useState("");
+  const [communitySearchInput, setCommunitySearchInput] = useState("");
+  const [communitySearchQuery, setCommunitySearchQuery] = useState("");
   const [communitySection, setCommunitySection] = useState<"conversations" | "businesses" | "nearby">("conversations");
   const [communityFilter, setCommunityFilter] = useState<"all" | "question" | "discovery" | "update" | "unanswered">("all");
   const [communityConversationOnly, setCommunityConversationOnly] = useState(false);
@@ -432,6 +434,16 @@ export default function HomePage() {
   }, [sessionUser?.id]);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => setCommunitySearchQuery(communitySearchInput.trim().slice(0, 120)), 300);
+    return () => window.clearTimeout(timer);
+  }, [communitySearchInput]);
+
+  useEffect(() => {
+    setCommunitySearchInput("");
+    setCommunitySearchQuery("");
+  }, [selectedPlace?.id]);
+
+  useEffect(() => {
     let active = true;
     const placeKey = selectedPlace?.id || "";
     if (!placeKey || !/^(node|way|relation)-[1-9]\\d{0,17}$/.test(placeKey)) {
@@ -451,6 +463,7 @@ export default function HomePage() {
     setCommunityHasMore(false);
     setCommunityTotalCount(0);
     const params = new URLSearchParams({ placeKey });
+    if (communitySearchQuery.length >= 2) params.set("q", communitySearchQuery);
     if (communityFilter === "unanswered") {
       params.set("type", "question");
       params.set("unanswered", "1");
@@ -468,7 +481,7 @@ export default function HomePage() {
         }
         let loaded = Array.isArray(payload.posts) ? payload.posts as CommunityPost[] : [];
         const pinned = pinnedConversation;
-        if (pinned && pinned.placeKey === placeKey && !loaded.some((post) => post.id === pinned.id)) loaded = [pinned, ...loaded];
+        if (!communitySearchQuery && pinned && pinned.placeKey === placeKey && !loaded.some((post) => post.id === pinned.id)) loaded = [pinned, ...loaded];
         setCommunityPosts(loaded);
         setCommunityHasMore(payload.hasMore === true);
         setCommunityCursor(typeof payload.nextCursor === "string" ? payload.nextCursor : null);
@@ -483,7 +496,7 @@ export default function HomePage() {
       .finally(() => { if (active) setCommunityLoading(false); });
 
     return () => { active = false; };
-  }, [selectedPlace?.id, sessionUser?.id, communityFilter, communityRefreshVersion, pinnedConversation?.id]);
+  }, [selectedPlace?.id, sessionUser?.id, communityFilter, communityRefreshVersion, pinnedConversation?.id, communitySearchQuery]);
 
   const handleBusinessTagsChange = useCallback((items: BusinessTagOption[]) => {
     setAvailableBusinessTags(items);
@@ -495,6 +508,7 @@ export default function HomePage() {
     setCommunityLoadingMore(true);
     try {
       const params = new URLSearchParams({ placeKey: selectedPlace.id, before: communityCursor });
+      if (communitySearchQuery.length >= 2) params.set("q", communitySearchQuery);
       if (communityFilter === "unanswered") {
         params.set("type", "question");
         params.set("unanswered", "1");
@@ -2146,6 +2160,17 @@ export default function HomePage() {
             ) : (
               <div className="community-feed-area">
                 <div className="community-feed-toolbar">
+                  {!communityConversationOnly && <form className="community-search-bar" role="search" onSubmit={(event) => { event.preventDefault(); setCommunitySearchQuery(communitySearchInput.trim().slice(0, 120)); }}>
+                    <Search size={15} aria-hidden="true" />
+                    <input
+                      type="search"
+                      value={communitySearchInput}
+                      onChange={(event) => setCommunitySearchInput(event.target.value.slice(0, 120))}
+                      placeholder={`Search conversations in ${selectedPlace.name}`}
+                      aria-label={`Search conversations in ${selectedPlace.name}`}
+                    />
+                    {communitySearchInput && <button type="button" onClick={() => { setCommunitySearchInput(""); setCommunitySearchQuery(""); }} aria-label="Clear conversation search"><X size={13} /></button>}
+                  </form>}
                   {!communityConversationOnly && <div className="community-feed-filter-row" role="group" aria-label="Filter conversations">
                     <button type="button" className={communityFilter === "all" ? "active" : ""} onClick={() => setCommunityFilter("all")}>All</button>
                     <button type="button" className={communityFilter === "question" ? "active" : ""} onClick={() => setCommunityFilter("question")}>Questions</button>
@@ -2188,8 +2213,8 @@ export default function HomePage() {
               </div>
             ) : displayedCommunityPosts.length === 0 ? (
               <div className="community-empty-card">
-                <strong>No conversations yet</strong>
-                <p>Be the first to share something useful from this place.</p>
+                <strong>{communitySearchQuery.length >= 2 ? "No matching conversations" : "No conversations yet"}</strong>
+                <p>{communitySearchQuery.length >= 2 ? "Try a different word, place detail, or username." : "Be the first to share something useful from this place."}</p>
               </div>
             ) : (
               <div className="community-post-list">

@@ -85,11 +85,15 @@ export async function GET(request: Request) {
   const placeKey = url.searchParams.get("placeKey") || "";
   const requestedType = url.searchParams.get("type") || "";
   const unansweredOnly = url.searchParams.get("unanswered") === "1";
+  const query = (url.searchParams.get("q") || "").trim().slice(0, 120);
   const before = url.searchParams.get("before") || "";
   if (!OSM_PLACE_KEY.test(placeKey)) {
     return NextResponse.json({ posts: [], totalCount: 0, hasMore: false, nextCursor: null, configured: isMongoConfigured(), message: "Choose a named mapped place to view its live community." });
   }
   if (requestedType && !POST_TYPES.has(requestedType)) return NextResponse.json({ error: "Choose a valid conversation filter." }, { status: 400 });
+  if (url.searchParams.has("q") && (url.searchParams.get("q") || "").trim().length > 120) {
+    return NextResponse.json({ error: "Search terms must be 120 characters or fewer." }, { status: 400 });
+  }
   if (before && !/^[a-f\d]{24}$/i.test(before)) return NextResponse.json({ error: "That feed cursor is invalid." }, { status: 400 });
   if (!isMongoConfigured()) return NextResponse.json({ posts: [], totalCount: 0, hasMore: false, nextCursor: null, configured: false, message: "Community storage is not connected yet. Configure MongoDB to enable persistent posts." }, { status: 503 });
 
@@ -97,8 +101,19 @@ export async function GET(request: Request) {
     const db = await getDatabase();
     const viewer = await getCurrentUser().catch(() => null);
     const viewerId = viewer ? new ObjectId(viewer.id) : null;
+    const escapedQuery = [...query].map((character) =>
+      ".*+?^$()|{}[]\\".includes(character) ? "\\" + character : character
+    ).join("");
+    const baseMatch: Record<string, unknown> = { placeKey, status: "visible" };
+    if (query.length >= 2) {
+      baseMatch.$or = [
+        { body: { $regex: escapedQuery, $options: "i" } },
+        { authorUsername: { $regex: escapedQuery, $options: "i" } },
+        { authorDisplayName: { $regex: escapedQuery, $options: "i" } },
+      ];
+    }
     const pipeline: Record<string, unknown>[] = [
-      { $match: { placeKey, status: "visible" } },
+      { $match: baseMatch },
       { $lookup: {
         from: "replies",
         localField: "_id",
@@ -155,7 +170,7 @@ export async function GET(request: Request) {
       totalCount,
       hasMore,
       nextCursor: hasMore && documents.length ? String(documents[documents.length - 1]._id) : null,
-      filters: { type: requestedType || "all", unanswered: unansweredOnly },
+      filters: { type: requestedType || "all", unanswered: unansweredOnly, query: query.length >= 2 ? query : "" },
     }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ posts: [], totalCount: 0, hasMore: false, nextCursor: null, configured: true, message: "The community feed is temporarily unavailable." }, { status: 503, headers: { "Cache-Control": "no-store" } });

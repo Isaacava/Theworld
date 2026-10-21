@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft, BadgeCheck, Building2, CalendarClock, Check, Clock3, ExternalLink,
-  MapPin, MessageCircle, RefreshCw, Send, ShieldCheck, Star, Store, X,
+  MapPin, MessageCircle, Navigation, RefreshCw, Send, ShieldCheck, Star, Store, X,
 } from "lucide-react";
 
 export type BusinessTagOption = { businessId: string; name: string };
@@ -266,6 +266,7 @@ export default function BusinessDirectory({ place, sessionUser, authConfigured, 
           {selected.openingHours && <p><Clock3 size={13} /><span><strong>Hours</strong>{selected.openingHours}</span></p>}
           {selected.phone && <p><MessageCircle size={13} /><span><strong>Phone</strong><a href={`tel:${selected.phone.replace(/[^+\d]/g, "")}`}>{selected.phone}</a></span></p>}
           {selected.website && <p><ExternalLink size={13} /><span><strong>Website</strong><a href={selected.website} target="_blank" rel="noreferrer noopener">Open official website</a></span></p>}
+          <p><Navigation size={13} /><span><strong>Directions</strong><a href={`https://www.google.com/maps/dir/?api=1&destination=${selected.coordinates[1]},${selected.coordinates[0]}`} target="_blank" rel="noreferrer noopener">Get directions</a></span></p>
         </div>
         {selected.isVerified ? (
           <>
