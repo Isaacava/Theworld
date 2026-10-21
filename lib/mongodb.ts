@@ -66,6 +66,7 @@ export async function getDatabase(): Promise<Db> {
       db.collection("geocoderSearchCache").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "geocoder_search_cache_expiry_ttl" }),
       db.collection("geocoderReverseCache").createIndex({ cacheKey: 1 }, { unique: true, name: "geocoder_reverse_cache_key_unique" }),
       db.collection("geocoderReverseCache").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "geocoder_reverse_cache_expiry_ttl" }),
+      db.collection("postImages.files").createIndex({ "metadata.userId": 1, uploadDate: -1 }, { name: "post_images_owner_recent" }),
       db.collection("placeMetadataCache").createIndex({ placeKey: 1 }, { unique: true, name: "place_metadata_key_unique" }),
       db.collection("placeMetadataCache").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "place_metadata_expiry_ttl" }),
       db.collection("nearbyBusinessCache").createIndex({ cacheKey: 1 }, { unique: true, name: "nearby_business_cache_key_unique" }),

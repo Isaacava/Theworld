@@ -24,6 +24,7 @@ function publicPost(doc: Record<string, unknown>, extras: Record<string, unknown
     presenceVerifiedAt: doc.presenceVerifiedAt instanceof Date ? doc.presenceVerifiedAt.toISOString() : null,
     isRemoteQuestion: doc.isRemoteQuestion === true,
     taggedBusinesses: Array.isArray(doc.taggedBusinesses) ? doc.taggedBusinesses : [],
+    images: Array.isArray(doc.images) ? doc.images.map((image) => String(image)).filter((id) => /^[a-f\d]{24}$/i.test(id)).slice(0, 3).map((id) => ({ id, url: `/api/uploads/${id}` })) : [],
     replyCount: typeof extras.replyCount === "number" ? extras.replyCount : 0,
     likesCount: typeof extras.likesCount === "number" ? extras.likesCount : 0,
     isLiked: extras.isLiked === true,

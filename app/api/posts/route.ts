@@ -74,6 +74,9 @@ function publicPost(document: Record<string, unknown>) {
     taggedBusinesses: Array.isArray(document.taggedBusinesses)
       ? document.taggedBusinesses.filter((item): item is { businessId: string; name: string } => Boolean(item && typeof item === "object" && typeof (item as { businessId?: unknown }).businessId === "string" && typeof (item as { name?: unknown }).name === "string")).slice(0, 3)
       : [],
+    images: Array.isArray(document.images)
+      ? document.images.map((image) => String(image)).filter((id) => /^[a-f\d]{24}$/i.test(id)).slice(0, 3).map((id) => ({ id, url: `/api/uploads/${id}` }))
+      : [],
   };
 }
 
@@ -112,7 +115,7 @@ export async function GET(request: Request) {
     itemStages.push(
       { $sort: { _id: -1 } },
       { $limit: 31 },
-      { $project: { body: 1, type: 1, placeKey: 1, placeName: 1, authorUsername: 1, authorDisplayName: 1, createdAt: 1, presenceVerifiedAt: 1, isRemoteQuestion: 1, replyCount: 1, taggedBusinesses: 1 } },
+      { $project: { body: 1, type: 1, placeKey: 1, placeName: 1, authorUsername: 1, authorDisplayName: 1, createdAt: 1, presenceVerifiedAt: 1, isRemoteQuestion: 1, replyCount: 1, taggedBusinesses: 1, images: 1 } },
     );
     pipeline.push({ $facet: { items: itemStages, total: [{ $count: "count" }] } });
     const aggregated = await db.collection("posts").aggregate(pipeline).toArray();
@@ -189,6 +192,7 @@ export async function POST(request: Request) {
   const placeInput = values.place as Partial<PlaceKeyInput> | undefined;
   const location = values.location as Partial<LocationInput> | undefined;
   const rawBusinessIds = Array.isArray(values.businessIds) ? values.businessIds : [];
+  const rawImageIds = Array.isArray(values.imageIds) ? values.imageIds : [];
   const isRemoteQuestion = type === "question" && values.isRemoteQuestion === true;
   const verifiedLocation = isValidLocationInput(location) ? location : null;
   const placeKey = typeof placeInput?.placeKey === "string" ? placeInput.placeKey : "";
@@ -202,6 +206,11 @@ export async function POST(request: Request) {
   if (body.length < 2 || body.length > 500) {
     return NextResponse.json({ error: "A post must contain 2–500 characters." }, { status: 400 });
   }
+  if (rawImageIds.length > 3) return NextResponse.json({ error: "Attach no more than three images to one post." }, { status: 400 });
+  if (rawImageIds.some((value) => typeof value !== "string" || !/^[a-f\d]{24}$/i.test(value))) {
+    return NextResponse.json({ error: "Choose valid uploaded images." }, { status: 400 });
+  }
+  const imageIdStrings = [...new Set(rawImageIds as string[])];
   if (!POST_TYPES.has(type)) {
     return NextResponse.json({ error: "Choose a valid post type." }, { status: 400 });
   }
@@ -325,6 +334,22 @@ export async function POST(request: Request) {
 
       presenceVerifiedAt = new Date();
     }
+    const imageObjectIds = imageIdStrings.map((id) => new ObjectId(id));
+    if (imageObjectIds.length) {
+      const uploadCutoff = new Date(now.getTime() - 30 * 60 * 1000);
+      const ownedFiles = await db.collection("postImages.files").find({
+        _id: { $in: imageObjectIds },
+        "metadata.userId": userId,
+        uploadDate: { $gte: uploadCutoff },
+        contentType: { $in: ["image/jpeg", "image/png", "image/webp"] },
+      }).project({ _id: 1 }).toArray();
+      if (ownedFiles.length !== imageObjectIds.length) {
+        return NextResponse.json({ error: "One or more images expired or do not belong to your account. Select them again." }, { status: 422 });
+      }
+      const alreadyAttached = await posts.findOne({ images: { $in: imageObjectIds } }, { projection: { _id: 1 } });
+      if (alreadyAttached) return NextResponse.json({ error: "An uploaded image is already attached to another post. Select it again to upload a new copy." }, { status: 409 });
+    }
+
     await db.collection("communities").updateOne(
       { placeKey },
       {
@@ -373,6 +398,7 @@ export async function POST(request: Request) {
       placeName,
       placeDisplayName,
       taggedBusinesses,
+      images: imageObjectIds,
       body,
       type,
       authorId: userId,
