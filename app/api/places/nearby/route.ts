@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getDatabase, isMongoConfigured } from "@/lib/mongodb";
 import { OSM_FEATURE_KEY } from "@/lib/businesses";
 import { getCanonicalOsmPlaceMetadata, PlaceLookupError } from "@/lib/osm-place";
+import { fetchOverpassJson } from "@/lib/overpass";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -122,7 +123,7 @@ async function loadNearbyCommunities(
     { upsert: true, returnDocument: "before" },
   );
   const delay = Math.max(0, (previous?.nextAllowedAt ?? current) - current);
-  if (delay > 2500) {
+  if (delay > 1200) {
     if (staleCache && Array.isArray(staleCache.communities)) {
       return { communities: staleCache.communities, radiusMeters: staleCache.radiusMeters || radiusMeters, cached: true, stale: true, sourceUnavailable: true };
     }
@@ -136,24 +137,10 @@ async function loadNearbyCommunities(
   const streets = isCityLike ? "" :
     `nwr(around:${radiusMeters},${lat},${lon})["name"]["highway"~"residential|living_street|pedestrian|tertiary|unclassified"];`;
   const query = `[out:json][timeout:8];(${places}${streets});out center tags 100;`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 9500);
   let candidates: Omit<NearbyCommunity, "conversationCount">[] = [];
   try {
-    const response = await fetch("https://overpass-api.de/api/interpreter", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-        "Accept": "application/json",
-        "User-Agent": "THE-WORLD-prototype/0.1 (https://github.com/Isaacava/Theworld)",
-      },
-      body: new URLSearchParams({ data: query }),
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!response.ok) throw new Error("Nearby map data is temporarily unavailable.");
-    const payload = await response.json() as { elements?: OSMElement[] };
-    const normalized = (Array.isArray(payload.elements) ? payload.elements : [])
+    const payload = await fetchOverpassJson<OSMElement>(query);
+    const normalized = payload.elements
       .map((item) => normalizeElement(item, center, placeKey, placeName))
       .filter((item): item is Omit<NearbyCommunity, "conversationCount"> => item !== null)
       .filter((item) => item.distanceMeters <= radiusMeters)
@@ -184,8 +171,6 @@ async function loadNearbyCommunities(
     // The public map service can be temporarily busy. Continue with any real
     // communities already known to THE WORLD instead of failing the entire tab.
     return { communities: [], radiusMeters, cached: false, stale: false, sourceUnavailable: true };
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

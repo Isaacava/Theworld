@@ -5,6 +5,7 @@ import { businessDto, OSM_FEATURE_KEY } from "@/lib/businesses";
 import { hasSameOrigin, isJsonRequest } from "@/lib/http";
 import { getDatabase, isMongoConfigured } from "@/lib/mongodb";
 import { getCanonicalOsmPlaceMetadata, PlaceLookupError } from "@/lib/osm-place";
+import { fetchOverpassJson } from "@/lib/overpass";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -95,7 +96,10 @@ function normalizeElement(item: OSMElement): Omit<NearbyBusiness, "isVerified" |
 async function loadNearbyBusinesses(db: Awaited<ReturnType<typeof getDatabase>>, placeKey: string, center: [number, number]) {
   const now = new Date();
   const cache = db.collection<{ cacheKey: string; businesses: ReturnType<typeof normalizeElement>[]; expiresAt: Date }>("nearbyBusinessCache");
-  const cached = await cache.findOne({ cacheKey: placeKey, expiresAt: { $gt: now } });
+  const [cached, staleCache] = await Promise.all([
+    cache.findOne({ cacheKey: placeKey, expiresAt: { $gt: now } }),
+    cache.findOne({ cacheKey: placeKey }),
+  ]);
   if (cached && Array.isArray(cached.businesses)) return cached.businesses.filter(Boolean) as NonNullable<ReturnType<typeof normalizeElement>>[];
 
   // Share a database-backed request slot rather than allowing every serverless
@@ -108,37 +112,29 @@ async function loadNearbyBusinesses(db: Awaited<ReturnType<typeof getDatabase>>,
     { upsert: true, returnDocument: "before" },
   );
   const delay = Math.max(0, (previous?.nextAllowedAt ?? current) - current);
-  if (delay > 2500) throw new Error("Nearby business lookup is busy. Try again shortly.");
+  if (delay > 1200) {
+    if (staleCache && Array.isArray(staleCache.businesses)) return staleCache.businesses.filter(Boolean) as NonNullable<ReturnType<typeof normalizeElement>>[];
+    throw new Error("Nearby business lookup is busy. Try again shortly.");
+  }
   if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
 
   const lat = center[1];
   const lon = center[0];
   const query = `[out:json][timeout:8];(nwr(around:850,${lat},${lon})["name"]["shop"];nwr(around:850,${lat},${lon})["name"]["amenity"~"restaurant|cafe|fast_food|pharmacy|bank|marketplace|fuel|clinic|doctors|dentist|beauty_salon|bar|pub"];nwr(around:850,${lat},${lon})["name"]["office"];nwr(around:850,${lat},${lon})["name"]["craft"];nwr(around:850,${lat},${lon})["name"]["healthcare"];nwr(around:850,${lat},${lon})["name"]["tourism"~"hotel|guest_house|attraction|museum"];);out center tags 70;`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 9500);
   let candidates: NonNullable<ReturnType<typeof normalizeElement>>[] = [];
   try {
-    const response = await fetch("https://overpass-api.de/api/interpreter", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-        "Accept": "application/json",
-        "User-Agent": "THE-WORLD-prototype/0.1 (https://github.com/Isaacava/Theworld)",
-      },
-      body: new URLSearchParams({ data: query }),
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!response.ok) throw new Error("Nearby business data is temporarily unavailable.");
-    const payload = await response.json() as { elements?: OSMElement[] };
-    candidates = (Array.isArray(payload.elements) ? payload.elements : [])
+    const payload = await fetchOverpassJson<OSMElement>(query);
+    candidates = payload.elements
       .map(normalizeElement)
       .filter((item): item is NonNullable<ReturnType<typeof normalizeElement>> => item !== null)
       .filter((item) => haversineMeters(center, item.coordinates) <= 900)
       .filter((item, index, all) => all.findIndex((candidate) => candidate.osmPlaceKey === item.osmPlaceKey) === index)
       .slice(0, 60);
-  } finally {
-    clearTimeout(timeout);
+  } catch (error) {
+    if (staleCache && Array.isArray(staleCache.businesses)) {
+      return staleCache.businesses.filter(Boolean) as NonNullable<ReturnType<typeof normalizeElement>>[];
+    }
+    throw error;
   }
   await cache.updateOne(
     { cacheKey: placeKey },
