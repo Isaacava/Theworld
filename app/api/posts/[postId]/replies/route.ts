@@ -40,6 +40,7 @@ function publicReply(document: Record<string, unknown>) {
     presenceVerifiedAt: document.presenceVerifiedAt instanceof Date
       ? document.presenceVerifiedAt.toISOString()
       : null,
+    editedAt: document.editedAt instanceof Date ? document.editedAt.toISOString() : null,
   };
 }
 
@@ -83,6 +84,7 @@ export async function GET(_request: Request, context: RouteContext) {
         authorDisplayName: 1,
         createdAt: 1,
         presenceVerifiedAt: 1,
+        editedAt: 1,
       })
       .toArray();
 

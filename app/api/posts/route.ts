@@ -14,6 +14,16 @@ export const dynamic = "force-dynamic";
 const OSM_PLACE_KEY = /^(node|way|relation)-[1-9]\d{0,17}$/;
 const POST_TYPES = new Set(["thought", "question", "discovery", "update"]);
 
+function distanceMeters(a: [number, number], b: [number, number]) {
+  const radians = (n: number) => n * Math.PI / 180;
+  const dLat = radians(b[1] - a[1]);
+  const dLon = radians(b[0] - a[0]);
+  const lat1 = radians(a[1]);
+  const lat2 = radians(b[1]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
+}
+
 type LocationInput = {
   latitude: number;
   longitude: number;
@@ -346,12 +356,15 @@ export async function POST(request: Request) {
     if (businessIds.length) {
       const businessDocs = await db.collection("businesses").find({
         _id: { $in: businessIds.map((id) => new ObjectId(id)) },
-        placeKey,
         status: "verified",
         verificationStatus: "verified",
-      }).project({ name: 1 }).toArray();
-      if (businessDocs.length !== businessIds.length) {
-        return NextResponse.json({ error: "Only verified businesses listed for this community can be tagged." }, { status: 422 });
+      }).project({ name: 1, coordinates: 1 }).toArray();
+      if (businessDocs.length !== businessIds.length || businessDocs.some((doc) =>
+        !Array.isArray(doc.coordinates) || doc.coordinates.length !== 2 ||
+        typeof doc.coordinates[0] !== "number" || typeof doc.coordinates[1] !== "number" ||
+        distanceMeters(placeCoordinates, [doc.coordinates[0], doc.coordinates[1]]) > 1250
+      )) {
+        return NextResponse.json({ error: "Only verified businesses mapped close to this community can be tagged." }, { status: 422 });
       }
       taggedBusinesses = businessDocs.map((doc) => ({ businessId: String(doc._id), name: String(doc.name ?? "Local business") }));
     }

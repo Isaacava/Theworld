@@ -17,6 +17,7 @@ export type PublicBusiness = {
   isVerified: boolean;
   isOwner: boolean;
   proofUrl?: string;
+  website?: string;
 };
 
 export async function currentUserSafe() {
@@ -53,6 +54,7 @@ export function businessDto(record: Record<string, unknown>, currentUserId?: str
     isVerified: status === "verified" && record.verificationStatus === "verified",
     isOwner: Boolean(currentUserId && record.ownerId instanceof ObjectId && record.ownerId.toHexString() === currentUserId),
     ...(typeof record.proofUrl === "string" ? { proofUrl: record.proofUrl } : {}),
+    ...(typeof record.officialWebsite === "string" ? { website: record.officialWebsite } : {}),
   };
 }
 
