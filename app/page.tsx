@@ -391,29 +391,45 @@ export default function HomePage() {
   useEffect(() => {
     let active = true;
     const placeKey = selectedPlace?.id || "";
-    if (!placeKey || !/^(node|way|relation)-[1-9]\d{0,17}$/.test(placeKey)) {
+    if (!placeKey || !/^(node|way|relation)-[1-9]\\d{0,17}$/.test(placeKey)) {
       setCommunityPosts([]);
       setCommunityError("");
       setCommunityLoading(false);
+      setCommunityHasMore(false);
+      setCommunityCursor(null);
+      setCommunityTotalCount(0);
       return;
     }
 
     setCommunityLoading(true);
     setCommunityError("");
-    fetch(`/api/posts?placeKey=${encodeURIComponent(placeKey)}`, { cache: "no-store" })
+    setCommunityPosts([]);
+    setCommunityCursor(null);
+    setCommunityHasMore(false);
+    setCommunityTotalCount(0);
+    const params = new URLSearchParams({ placeKey });
+    if (communityFilter === "unanswered") {
+      params.set("type", "question");
+      params.set("unanswered", "1");
+    } else if (communityFilter !== "all") {
+      params.set("type", communityFilter);
+    }
+    fetch("/api/posts?" + params.toString(), { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (!active) return;
         if (!response.ok) {
           setCommunityPosts([]);
-          setCommunityError(
-            typeof payload.message === "string"
-              ? payload.message
-              : "The community feed is temporarily unavailable.",
-          );
+          setCommunityError(typeof payload.message === "string" ? payload.message : "The community feed is temporarily unavailable.");
           return;
         }
-        setCommunityPosts(Array.isArray(payload.posts) ? payload.posts as CommunityPost[] : []);
+        let loaded = Array.isArray(payload.posts) ? payload.posts as CommunityPost[] : [];
+        const pinned = pinnedConversation;
+        if (pinned && pinned.placeKey === placeKey && !loaded.some((post) => post.id === pinned.id)) loaded = [pinned, ...loaded];
+        setCommunityPosts(loaded);
+        setCommunityHasMore(payload.hasMore === true);
+        setCommunityCursor(typeof payload.nextCursor === "string" ? payload.nextCursor : null);
+        setCommunityTotalCount(typeof payload.totalCount === "number" ? payload.totalCount : loaded.length);
         setCommunityError("");
       })
       .catch(() => {
@@ -421,12 +437,44 @@ export default function HomePage() {
         setCommunityPosts([]);
         setCommunityError("We couldn't load this community. Check your connection and try again.");
       })
-      .finally(() => {
-        if (active) setCommunityLoading(false);
-      });
+      .finally(() => { if (active) setCommunityLoading(false); });
 
     return () => { active = false; };
-  }, [selectedPlace?.id, sessionUser?.id]);
+  }, [selectedPlace?.id, sessionUser?.id, communityFilter, communityRefreshVersion, pinnedConversation?.id]);
+
+  const handleBusinessTagsChange = useCallback((items: BusinessTagOption[]) => {
+    setAvailableBusinessTags(items);
+    setTaggedBusinessIds((current) => current.filter((id) => items.some((item) => item.businessId === id)).slice(0, 3));
+  }, []);
+
+  async function loadMoreCommunityPosts() {
+    if (!selectedPlace || !communityCursor || communityLoadingMore || !communityHasMore) return;
+    setCommunityLoadingMore(true);
+    try {
+      const params = new URLSearchParams({ placeKey: selectedPlace.id, before: communityCursor });
+      if (communityFilter === "unanswered") {
+        params.set("type", "question");
+        params.set("unanswered", "1");
+      } else if (communityFilter !== "all") {
+        params.set("type", communityFilter);
+      }
+      const response = await fetch("/api/posts?" + params.toString(), { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof payload.message === "string" ? payload.message : "Older conversations couldn't be loaded.");
+      const older = Array.isArray(payload.posts) ? payload.posts as CommunityPost[] : [];
+      setCommunityPosts((current) => {
+        const ids = new Set(current.map((post) => post.id));
+        return [...current, ...older.filter((post) => !ids.has(post.id))];
+      });
+      setCommunityCursor(typeof payload.nextCursor === "string" ? payload.nextCursor : null);
+      setCommunityHasMore(payload.hasMore === true);
+      setCommunityTotalCount(typeof payload.totalCount === "number" ? payload.totalCount : communityTotalCount);
+    } catch (error) {
+      setCommunityError(error instanceof Error ? error.message : "Older conversations couldn't be loaded.");
+    } finally {
+      setCommunityLoadingMore(false);
+    }
+  }
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -977,9 +1025,15 @@ export default function HomePage() {
       setReplyError("");
       setActiveNav("explore");
       setSavedViewOpen(false);
+      setCommunitySection("conversations");
+      setTaggedBusinessIds([]);
       setMobilePanelOpen(true);
       setMobilePanelExpanded(false);
       setSearchOpen(false);
+      const url = new URL(window.location.href);
+      url.searchParams.set("place", place.id);
+      url.searchParams.delete("post");
+      window.history.pushState({ theWorldPlace: place.id }, "", url.pathname + url.search + url.hash);
       mapRef.current?.flyTo(place.coordinates, place.zoom);
       mapRef.current?.setMarker(place.coordinates);
     },
@@ -1081,18 +1135,23 @@ export default function HomePage() {
     }
   }
 
-  function chooseQuickPlace(place: (typeof QUICK_PLACES)[number]) {
-    const selected: SelectedPlace = {
-      id: `quick-${place.name.toLowerCase()}`,
-      name: place.name,
-      subtitle: place.subtitle,
-      displayName: `${place.name}, ${place.subtitle}`,
-      kind: place.kind,
-      coordinates: place.coordinates,
-      zoom: place.zoom,
-    };
-    setSearchValue(place.name);
-    selectPlace(selected);
+  async function chooseQuickPlace(place: (typeof QUICK_PLACES)[number]) {
+    setSearching(true);
+    setSearchError("");
+    try {
+      const results = await searchPlaces(place.name + ", " + place.subtitle);
+      const exact = results.find((result) => getPlaceTitle(result).toLocaleLowerCase() === place.name.toLocaleLowerCase());
+      const result = exact ?? results[0];
+      if (!result) {
+        showNotice("We couldn't find a mapped listing for " + place.name + ". Search for the place instead.");
+        return;
+      }
+      chooseSearchResult(result);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "That place could not be resolved right now.");
+    } finally {
+      setSearching(false);
+    }
   }
 
   function toggleSavedPlace() {
