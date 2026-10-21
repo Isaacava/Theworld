@@ -5,7 +5,7 @@ import { hasSameOrigin, isJsonRequest } from "@/lib/http";
 import { getDatabase, isMongoConfigured } from "@/lib/mongodb";
 import { allowedRadius, validCoordinates } from "@/lib/location-check";
 import { distanceToGeoJsonMeters } from "@/lib/place-geometry.mjs";
-import { getCanonicalOsmPlace, PlaceLookupError } from "@/lib/osm-place";
+import { getCanonicalOsmPlace, getCanonicalOsmPlaceMetadata, PlaceLookupError } from "@/lib/osm-place";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -247,9 +247,19 @@ export async function POST(request: Request) {
       });
     }
 
-    // Always resolve the place ID on the server. Remote questions can be
-    // attached to a real place without claiming that their author is nearby.
-    const place = await getCanonicalOsmPlace(db, placeKey);
+    // Remote questions need a real place identity, but must not need a full
+    // city polygon just to ask for local knowledge. Presence-verified posts
+    // always use the canonical geometry path.
+    const placeMetadata = isRemoteQuestion
+      ? await getCanonicalOsmPlaceMetadata(db, placeKey)
+      : null;
+    const canonicalPlace = isRemoteQuestion
+      ? null
+      : await getCanonicalOsmPlace(db, placeKey);
+    const placeName = placeMetadata?.name ?? canonicalPlace!.name;
+    const placeDisplayName = placeMetadata?.displayName ?? canonicalPlace!.displayName;
+    const placeKind = placeMetadata?.kind ?? canonicalPlace!.kind;
+    const placeCoordinates = placeMetadata?.coordinates ?? canonicalPlace!.coordinates;
     let presenceVerifiedAt: Date | null = null;
     let radius = 0;
 
@@ -261,6 +271,7 @@ export async function POST(request: Request) {
         );
       }
       const currentCoordinates: [number, number] = [verifiedLocation.longitude, verifiedLocation.latitude];
+      const place = canonicalPlace!;
       const isAreaGeometry = place.geojson.type === "Polygon" || place.geojson.type === "MultiPolygon";
       // Polygon interiors already represent the allowed area. Do not allow the
       // broad "city radius" outside an area's mapped boundary.
@@ -315,8 +326,8 @@ export async function POST(request: Request) {
 
     const document = {
       placeKey,
-      placeName: place.name,
-      placeDisplayName: place.displayName,
+      placeName,
+      placeDisplayName,
       body,
       type,
       authorId: userId,
@@ -328,7 +339,7 @@ export async function POST(request: Request) {
       isRemoteQuestion,
       presenceMethod: isRemoteQuestion ? "remote-question" : "server-validated-osm-geometry-proximity",
       verificationRadiusMeters: isRemoteQuestion ? null : radius,
-      verificationGeometryType: place.geojson.type,
+      verificationGeometryType: canonicalPlace?.geojson.type ?? null,
     };
     const result = await posts.insertOne(document);
     return NextResponse.json(

@@ -249,3 +249,93 @@ export async function getCanonicalOsmPlace(db: Db, placeKey: string): Promise<Ca
   );
   return canonical;
 }
+
+
+export type CanonicalPlaceMetadata = {
+  placeKey: string;
+  osmType: "node" | "way" | "relation";
+  osmId: number;
+  name: string;
+  displayName: string;
+  kind: string;
+  coordinates: [number, number];
+  fetchedAt: Date;
+  expiresAt: Date;
+};
+
+/**
+ * Resolve canonical place identity without downloading boundary polygons.
+ * Used for remote questions, links, and directory browsing where location
+ * geometry is not needed. Local-presence posts must use getCanonicalOsmPlace.
+ */
+export async function getCanonicalOsmPlaceMetadata(
+  db: Db,
+  placeKey: string,
+): Promise<CanonicalPlaceMetadata> {
+  const expected = parsePlaceKey(placeKey);
+  const collection = db.collection<CanonicalPlaceMetadata>("placeMetadataCache");
+  const now = new Date();
+  const cached = await collection.findOne({ placeKey, expiresAt: { $gt: now } });
+  if (
+    cached &&
+    cached.osmType === expected.osmType &&
+    cached.osmId === expected.osmId &&
+    Array.isArray(cached.coordinates) &&
+    cached.coordinates.length === 2
+  ) return cached;
+
+  const url = new URL("/lookup", "https://nominatim.openstreetmap.org");
+  url.searchParams.set("osm_ids", expected.lookupId);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("addressdetails", "1");
+  let payload: unknown;
+  try {
+    payload = await fetchNominatimJson(db, url);
+  } catch (error) {
+    if (error instanceof NominatimError) throw new PlaceLookupError(error.message, error.status);
+    throw new PlaceLookupError("The map provider couldn't verify this place. Please try again.", 503);
+  }
+  if (!Array.isArray(payload) || payload.length === 0) {
+    throw new PlaceLookupError("This mapped place could not be found. Search again for a current map result.", 422);
+  }
+  const result = payload[0] as OSMResult;
+  if (result.osm_type !== expected.osmType || Number(result.osm_id) !== expected.osmId) {
+    throw new PlaceLookupError("The map provider returned a different place. Search again and retry.", 422);
+  }
+  const latitude = Number(result.lat);
+  const longitude = Number(result.lon);
+  if (
+    !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+    !Number.isFinite(longitude) || longitude < -180 || longitude > 180
+  ) {
+    throw new PlaceLookupError("The map provider returned invalid coordinates for this place.", 422);
+  }
+  const rawKind = typeof result.addresstype === "string"
+    ? result.addresstype
+    : typeof result.type === "string"
+      ? result.type
+      : typeof result.class === "string"
+        ? result.class
+        : "place";
+  if (new Set(["continent", "country", "state", "county", "province", "region"]).has(rawKind.toLowerCase())) {
+    throw new PlaceLookupError("Choose a local street, neighbourhood, venue, or city community rather than a country or region.", 422);
+  }
+  const name = typeof result.name === "string" && result.name.trim()
+    ? result.name.trim().slice(0, 160)
+    : typeof result.display_name === "string"
+      ? result.display_name.split(",")[0].trim().slice(0, 160)
+      : "Mapped place";
+  const record: CanonicalPlaceMetadata = {
+    placeKey,
+    osmType: expected.osmType,
+    osmId: expected.osmId,
+    name,
+    displayName: typeof result.display_name === "string" ? result.display_name.slice(0, 500) : name,
+    kind: rawKind.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()).slice(0, 80),
+    coordinates: [longitude, latitude],
+    fetchedAt: now,
+    expiresAt: new Date(now.getTime() + CACHE_TTL_MS),
+  };
+  await collection.updateOne({ placeKey }, { $set: record }, { upsert: true });
+  return record;
+}

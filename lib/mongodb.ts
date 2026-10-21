@@ -66,6 +66,17 @@ export async function getDatabase(): Promise<Db> {
       db.collection("geocoderSearchCache").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "geocoder_search_cache_expiry_ttl" }),
       db.collection("geocoderReverseCache").createIndex({ cacheKey: 1 }, { unique: true, name: "geocoder_reverse_cache_key_unique" }),
       db.collection("geocoderReverseCache").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "geocoder_reverse_cache_expiry_ttl" }),
+      db.collection("placeMetadataCache").createIndex({ placeKey: 1 }, { unique: true, name: "place_metadata_key_unique" }),
+      db.collection("placeMetadataCache").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "place_metadata_expiry_ttl" }),
+      db.collection("nearbyBusinessCache").createIndex({ cacheKey: 1 }, { unique: true, name: "nearby_business_cache_key_unique" }),
+      db.collection("nearbyBusinessCache").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "nearby_business_cache_expiry_ttl" }),
+      db.collection("businesses").createIndex({ osmPlaceKey: 1 }, { unique: true, sparse: true, name: "business_osm_place_unique" }),
+      db.collection("businesses").createIndex({ placeKey: 1, status: 1, createdAt: -1 }, { name: "business_place_status_recent" }),
+      db.collection("businessReviews").createIndex({ businessId: 1, status: 1, createdAt: -1 }, { name: "business_reviews_public_recent" }),
+      db.collection("businessReviews").createIndex({ businessId: 1, userId: 1 }, { unique: true, name: "business_review_user_unique" }),
+      db.collection("businessQuestions").createIndex({ businessId: 1, status: 1, createdAt: -1 }, { name: "business_questions_recent" }),
+      db.collection("businessBookings").createIndex({ businessId: 1, status: 1, createdAt: -1 }, { name: "business_bookings_recent" }),
+      db.collection("businessBookings").createIndex({ businessId: 1, userId: 1, createdAt: -1 }, { name: "business_bookings_user_recent" }),
     ]).then(() => undefined);
   }
 
