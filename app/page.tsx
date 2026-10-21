@@ -773,23 +773,14 @@ export default function HomePage() {
     }
     setNotificationsOpen(false);
     if (notification.coordinates && /^(node|way|relation)-[1-9]\d{0,17}$/.test(notification.placeKey)) {
-      selectPlace({
-        id: notification.placeKey,
-        name: notification.placeName,
-        subtitle: "Community activity",
-        displayName: notification.placeName,
-        kind: "Mapped place",
-        coordinates: notification.coordinates,
-        zoom: 15,
-      });
-      showNotice(notification.type === "reply"
-        ? `${notification.actor.displayName} replied to a conversation at ${notification.placeName}.`
-        : `${notification.actor.displayName} liked a post at ${notification.placeName}.`);
-    } else {
-      setSearchValue(notification.placeName);
-      setSearchOpen(true);
-      showNotice(`Search for ${notification.placeName} to return to this conversation.`);
+      const params = new URLSearchParams({ place: notification.placeKey });
+      if (/^[a-f\d]{24}$/i.test(notification.postId)) params.set("post", notification.postId);
+      window.location.href = "/?" + params.toString();
+      return;
     }
+    setSearchValue(notification.placeName);
+    setSearchOpen(true);
+    showNotice("Search for " + notification.placeName + " to return to this conversation.");
   }
 
   async function markAllNotificationsRead() {
@@ -1072,6 +1063,7 @@ export default function HomePage() {
           body,
           type: postType,
           isRemoteQuestion,
+          businessIds: taggedBusinessIds,
           place: {
             placeKey: selectedPlace.id,
             name: selectedPlace.name,
@@ -1108,6 +1100,9 @@ export default function HomePage() {
       ].slice(0, 30));
       setPostBody("");
       setAskFromElsewhere(false);
+      setTaggedBusinessIds([]);
+      setCommunityTotalCount((count) => count + 1);
+      setCommunityPosts((current) => current.slice(0, 30));
       showNotice(isRemoteQuestion
         ? "Your question is now posted for local people to answer."
         : "Your contribution is now in this place's community.");
@@ -2129,11 +2124,22 @@ export default function HomePage() {
                                         <Link className="profile-name-link" href={`/u/${encodeURIComponent(reply.author.username)}`}><strong>{reply.author.displayName || reply.author.username}</strong></Link>
                                         <small>@{reply.author.username} · {formatPostTime(reply.createdAt)}</small>
                                       </div>
-                                      <p>{reply.body}</p>
+                                      {editingReplyId === reply.id ? (
+                                        <form className="reply-edit-form" onSubmit={(event) => void saveEditedReply(event, post, reply)}>
+                                          <textarea value={editingReplyBody} onChange={(event) => setEditingReplyBody(event.target.value.slice(0, 300))} maxLength={300} rows={3} aria-label="Edit your reply" required />
+                                          <div><span>{editingReplyBody.length}/300</span><button type="submit" disabled={replyBusyPostId === post.id || editingReplyBody.trim().length < 2}>{replyBusyPostId === post.id ? "Saving…" : "Save"}</button><button type="button" className="community-quiet-button" onClick={() => { setEditingReplyId(null); setEditingReplyBody(""); }}>Cancel</button></div>
+                                        </form>
+                                      ) : <p>{reply.body}{reply.editedAt && <small className="community-edited-label"> · edited</small>}</p>}
                                       {reply.presenceVerifiedAt && (
                                         <span className="reply-presence"><ShieldCheck size={11} /> Local presence checked when posted</span>
                                       )}
                                     </div>
+                                    {reply.author.username === sessionUser?.username && (
+                                      <div className="reply-owner-actions">
+                                        {editingReplyId !== reply.id && <button type="button" onClick={() => { setEditingReplyId(reply.id); setEditingReplyBody(reply.body); setReplyError(""); }} aria-label="Edit your reply"><Pencil size={12} /> Edit</button>}
+                                        <button type="button" onClick={() => void deleteReply(post, reply)} disabled={replyBusyPostId === post.id} aria-label="Delete your reply"><Trash2 size={12} /> Delete</button>
+                                      </div>
+                                    )}
                                     {reply.author.username !== sessionUser?.username && (
                                       <button
                                         type="button"
