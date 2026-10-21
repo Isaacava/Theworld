@@ -268,6 +268,7 @@ export default function HomePage() {
   const [communityError, setCommunityError] = useState("");
   const [communitySection, setCommunitySection] = useState<"conversations" | "businesses">("conversations");
   const [communityFilter, setCommunityFilter] = useState<"all" | "question" | "discovery" | "update" | "unanswered">("all");
+  const [communityConversationOnly, setCommunityConversationOnly] = useState(false);
   const [availableBusinessTags, setAvailableBusinessTags] = useState<BusinessTagOption[]>([]);
   const [taggedBusinessIds, setTaggedBusinessIds] = useState<string[]>([]);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
@@ -288,6 +289,9 @@ export default function HomePage() {
   const [replyThreadPostId, setReplyThreadPostId] = useState<string | null>(null);
   const [repliesByPost, setRepliesByPost] = useState<Record<string, CommunityReply[]>>({});
   const [replyLoadingPostId, setReplyLoadingPostId] = useState<string | null>(null);
+  const [replyHasMoreByPost, setReplyHasMoreByPost] = useState<Record<string, boolean>>({});
+  const [replyCursorByPost, setReplyCursorByPost] = useState<Record<string, string | null>>({});
+  const [replyLoadingOlderPostId, setReplyLoadingOlderPostId] = useState<string | null>(null);
   const [replyBusyPostId, setReplyBusyPostId] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState("");
   const [replyError, setReplyError] = useState("");
@@ -710,6 +714,7 @@ export default function HomePage() {
     const url = new URL(window.location.origin + "/");
     url.searchParams.set("place", post.placeKey);
     url.searchParams.set("post", post.id);
+    url.searchParams.set("view", "conversation");
     try {
       if (navigator.share) {
         await navigator.share({ title: post.placeName + " conversation on THE WORLD", text: post.body, url: url.toString() });
@@ -913,32 +918,46 @@ export default function HomePage() {
 
     setReplyLoadingPostId(post.id);
     try {
-      const response = await fetch(`/api/posts/${encodeURIComponent(post.id)}/replies`, {
-        cache: "no-store",
-      });
+      const response = await fetch("/api/posts/" + encodeURIComponent(post.id) + "/replies", { cache: "no-store" });
       const payload = await response.json().catch(() => ({}));
       if (requestId !== replyRequestRef.current) return;
-
       if (!response.ok) {
-        setReplyError(
-          typeof payload.error === "string"
-            ? payload.error
-            : "We couldn't load replies. Please try again.",
-        );
+        setReplyError(typeof payload.error === "string" ? payload.error : "We couldn't load replies. Please try again.");
         return;
       }
-
       setRepliesByPost((current) => ({
         ...current,
         [post.id]: Array.isArray(payload.replies) ? payload.replies as CommunityReply[] : [],
       }));
+      setReplyHasMoreByPost((current) => ({ ...current, [post.id]: payload.hasMore === true }));
+      setReplyCursorByPost((current) => ({ ...current, [post.id]: typeof payload.nextCursor === "string" ? payload.nextCursor : null }));
     } catch {
-      if (requestId === replyRequestRef.current) {
-        setReplyError("We couldn't load replies. Check your connection and try again.");
-      }
+      if (requestId === replyRequestRef.current) setReplyError("We couldn't load replies. Check your connection and try again.");
     } finally {
       if (requestId === replyRequestRef.current) setReplyLoadingPostId(null);
     }
+  }
+
+  async function loadOlderReplies(post: CommunityPost) {
+    const cursor = replyCursorByPost[post.id];
+    if (!cursor || !replyHasMoreByPost[post.id] || replyLoadingOlderPostId) return;
+    setReplyLoadingOlderPostId(post.id);
+    setReplyError("");
+    try {
+      const response = await fetch("/api/posts/" + encodeURIComponent(post.id) + "/replies?before=" + encodeURIComponent(cursor), { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Older replies couldn't be loaded.");
+      const older = Array.isArray(payload.replies) ? payload.replies as CommunityReply[] : [];
+      setRepliesByPost((current) => {
+        const existing = current[post.id] || [];
+        const ids = new Set(existing.map((reply) => reply.id));
+        return { ...current, [post.id]: [...older.filter((reply) => !ids.has(reply.id)), ...existing] };
+      });
+      setReplyHasMoreByPost((current) => ({ ...current, [post.id]: payload.hasMore === true }));
+      setReplyCursorByPost((current) => ({ ...current, [post.id]: typeof payload.nextCursor === "string" ? payload.nextCursor : null }));
+    } catch (error) {
+      setReplyError(error instanceof Error ? error.message : "Older replies couldn't be loaded.");
+    } finally { setReplyLoadingOlderPostId(null); }
   }
 
   async function handleReplySubmit(
@@ -1180,6 +1199,8 @@ export default function HomePage() {
       setActiveNav("explore");
       setSavedViewOpen(false);
       setCommunitySection("conversations");
+      setCommunityConversationOnly(false);
+      setPinnedConversation(null);
       setTaggedBusinessIds([]);
       setMobilePanelOpen(true);
       setMobilePanelExpanded(false);
@@ -1187,6 +1208,7 @@ export default function HomePage() {
       const url = new URL(window.location.href);
       url.searchParams.set("place", place.id);
       url.searchParams.delete("post");
+      url.searchParams.delete("view");
       window.history.pushState({ theWorldPlace: place.id }, "", url.pathname + url.search + url.hash);
       mapRef.current?.flyTo(place.coordinates, place.zoom);
       mapRef.current?.setMarker(place.coordinates);
@@ -1199,10 +1221,12 @@ export default function HomePage() {
     const params = new URLSearchParams(window.location.search);
     const placeKey = params.get("place") || "";
     const postId = params.get("post") || "";
+    const conversationOnly = params.get("view") === "conversation" && Boolean(postId);
     if (!placeKey && !postId) {
       if (clearWhenMissing) {
         setSelectedPlace(null);
         setPinnedConversation(null);
+        setCommunityConversationOnly(false);
         setReplyThreadPostId(null);
         setMobilePanelOpen(false);
         setMobilePanelExpanded(false);
@@ -1257,8 +1281,9 @@ export default function HomePage() {
       setActiveNav("explore");
       setSavedViewOpen(false);
       setCommunitySection("conversations");
+      setCommunityConversationOnly(conversationOnly);
       setMobilePanelOpen(true);
-      setMobilePanelExpanded(false);
+      setMobilePanelExpanded(conversationOnly);
       setReplyThreadPostId(null);
       setPinnedConversation(post);
       mapRef.current?.flyTo(place.coordinates, place.zoom);
@@ -1987,6 +2012,7 @@ export default function HomePage() {
               <p className="follow-place-hint">Following is available for named mapped places. Choose a real street, venue or neighbourhood.</p>
             )}
 
+            {!communityConversationOnly && <>
             <div className="place-card-divider" />
             <div className="place-community-tabs" role="tablist" aria-label="Place sections">
               <button type="button" role="tab" aria-selected={communitySection === "conversations"} className={communitySection === "conversations" ? "active" : ""} onClick={() => setCommunitySection("conversations")}>
@@ -1996,7 +2022,65 @@ export default function HomePage() {
                 <Building2 size={15} /> Businesses <span>{availableBusinessTags.length || ""}</span>
               </button>
             </div>
-            {communitySection === "businesses" ? (
+            </>}
+            {communityConversationOnly ? (
+              <div className="community-single-conversation-back">
+                <button type="button" onClick={() => {
+                  setCommunityConversationOnly(false);
+                  setPinnedConversation(null);
+                  setReplyThreadPostId(null);
+                  setMobilePanelExpanded(false);
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete("post");
+                  url.searchParams.delete("view");
+                  window.history.pushState({ theWorldPlace: selectedPlace.id }, "", url.pathname + url.search + url.hash);
+                }}><ArrowLeft size={14} /> All conversations in {selectedPlace.name}</button>
+              </div>
+            ) : null}
+            {communityConversationOnly ? (
+              <div className="community-feed-area focused-conversation-feed">
+                <div className="community-preview-heading">
+                  <div><span className="eyebrow">CONVERSATION</span><h3>Full discussion</h3></div>
+                  <button type="button" className="community-single-refresh" onClick={() => setCommunityRefreshVersion((version) => version + 1)} disabled={communityLoading} aria-label="Refresh conversation"><RefreshCw size={14}/></button>
+                </div>
+                {communityLoading ? (
+                  <div className="community-loading-card"><span className="mini-spinner"/>Loading conversation…</div>
+                ) : communityError ? (
+                  <div className="community-error-card" role="status"><ShieldCheck size={16}/><div><p>{communityError}</p><button type="button" className="community-inline-retry" onClick={() => setCommunityRefreshVersion((version) => version + 1)}>Retry <RefreshCw size={12}/></button></div></div>
+                ) : !pinnedConversation ? (
+                  <div className="community-empty-card"><strong>Conversation not found</strong><p>It may have been removed or the link may be out of date.</p></div>
+                ) : (
+                  <div className="community-post-list">
+                    {pinnedConversation && communityPosts.some((post) => post.id === pinnedConversation.id) && <span className="community-focused-post-anchor" aria-hidden="true" />}
+                    {pinnedConversation ? (
+                      <article className="community-post-card">
+                        <div className="community-post-top">
+                          <span className="community-post-avatar">{(pinnedConversation.author.displayName || pinnedConversation.author.username || "W").slice(0,1).toUpperCase()}</span>
+                          <div className="community-post-author">
+                            <Link className="profile-name-link" href={`/u/${encodeURIComponent(pinnedConversation.author.username)}`}><strong>{pinnedConversation.author.displayName || pinnedConversation.author.username}</strong></Link>
+                            <small>@{pinnedConversation.author.username} · {formatPostTime(pinnedConversation.createdAt)}</small>
+                          </div>
+                          <span className="community-post-type type-question">{pinnedConversation.type}</span>
+                        </div>
+                        <p className="community-post-body">{pinnedConversation.body}</p>
+                        {pinnedConversation.taggedBusinesses?.length > 0 && <div className="tagged-business-list">{pinnedConversation.taggedBusinesses.map((item) => <button key={item.businessId} type="button" onClick={() => { setCommunitySection("businesses"); setCommunityConversationOnly(false); setMobilePanelExpanded(false); }}><Building2 size={12}/>{item.name}</button>)}</div>}
+                        <div className="community-post-footer"><span><MapPin size={12}/> {pinnedConversation.placeName}</span>{pinnedConversation.presenceVerifiedAt && <span><ShieldCheck size={12}/> Location checked when posted</span>}</div>
+                        {replyThreadPostId === pinnedConversation.id ? <div className="reply-thread" id={`reply-thread-${pinnedConversation.id}`}>
+                          {replyLoadingPostId === pinnedConversation.id ? <div className="reply-thread-loading"><span className="mini-spinner"/>Loading replies…</div> : (
+                            <>
+                              {replyHasMoreByPost[pinnedConversation.id] && <button type="button" className="community-load-more" onClick={() => void loadOlderReplies(pinnedConversation)} disabled={replyLoadingOlderPostId === pinnedConversation.id}>{replyLoadingOlderPostId === pinnedConversation.id ? "Loading older replies…" : "Load older replies"}</button>}
+                              {(repliesByPost[pinnedConversation.id] || []).length === 0 ? <div className="reply-thread-empty"><strong>No replies yet.</strong><span>Be the first to add something useful.</span></div> : <div className="reply-list">{(repliesByPost[pinnedConversation.id] || []).map((reply) => <div className="reply-row" key={reply.id}><div className="reply-content"><div className="reply-author-line"><Link className="profile-name-link" href={`/u/${encodeURIComponent(reply.author.username)}`}><strong>{reply.author.displayName}</strong></Link><small>@{reply.author.username} · {formatPostTime(reply.createdAt)}{reply.editedAt ? " · edited" : ""}</small></div><p>{reply.body}</p>{reply.presenceVerifiedAt && <span className="reply-presence"><ShieldCheck size={11}/> Local presence checked when posted</span>}</div></div>)}</div>}
+                              {replyError && <p className="reply-form-error" role="alert">{replyError}</p>}
+                              {sessionUser ? <form className="reply-composer-form" onSubmit={(event) => { void handleReplySubmit(event, pinnedConversation); }}><textarea value={replyThreadPostId === pinnedConversation.id ? replyBody : ""} onChange={(event) => setReplyBody(event.target.value.slice(0,300))} maxLength={300} rows={3} placeholder="Add a thoughtful reply…" aria-label="Your reply" disabled={replyBusyPostId === pinnedConversation.id || authConfigured !== true}/><div className="reply-composer-bottom"><span>{replyBody.length}/300 · Local presence required</span><button type="submit" disabled={replyBusyPostId === pinnedConversation.id || replyBody.trim().length < 2 || authConfigured !== true}>{replyBusyPostId === pinnedConversation.id ? "Checking…" : "Reply"}</button></div></form> : <div className="reply-signin-prompt"><span>Sign in and be physically present to reply.</span><button type="button" onClick={() => {setAuthMode("login");setAuthModalOpen(true);}}><LogIn size={13}/> Sign in</button></div>}
+                            </>
+                          )}
+                        </div> : <button type="button" className="reply-thread-toggle" onClick={() => void toggleReplyThread(pinnedConversation)}><MessageCircle size={14}/><span>{pinnedConversation.replyCount || 0} replies</span><span className="reply-thread-action">Join conversation</span><ChevronRight size={15}/></button>}
+                      </article>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            ) : communitySection === "businesses" ? (            {communitySection === "businesses" ? (
               <BusinessDirectory
                 place={{ id: selectedPlace.id, name: selectedPlace.name, displayName: selectedPlace.displayName, coordinates: selectedPlace.coordinates }}
                 sessionUser={sessionUser ? { id: sessionUser.id, username: sessionUser.username, displayName: sessionUser.displayName } : null}
