@@ -13,6 +13,13 @@ import {
   Globe,
   Heart,
   Flag,
+  Pencil,
+  Trash2,
+  Share2,
+  RefreshCw,
+  Filter,
+  Star,
+  MessageSquare,
   Layers,
   LocateFixed,
   LogIn,
@@ -40,6 +47,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import BusinessDirectory, { type BusinessTagOption } from "@/components/business-directory";
 import Google3DMap from "@/components/google-3d-map";
 import GlobeMap, {
   type GlobeMapHandle,
@@ -91,6 +99,8 @@ type CommunityPost = {
   body: string;
   type: "thought" | "question" | "discovery" | "update";
   isRemoteQuestion: boolean;
+  taggedBusinesses: { businessId: string; name: string }[];
+  editedAt?: string | null;
   placeKey: string;
   placeName: string;
   author: { username: string; displayName: string };
@@ -122,7 +132,7 @@ type SavedBookmark = {
 
 type WorldNotification = {
   id: string;
-  type: "reply" | "like";
+  type: "reply" | "like" | "new_post";
   actor: { username: string; displayName: string };
   postId: string;
   placeKey: string;
@@ -139,6 +149,7 @@ type CommunityReply = {
   id: string;
   postId: string;
   body: string;
+  editedAt?: string | null;
   placeKey: string;
   placeName: string;
   author: { username: string; displayName: string };
@@ -248,7 +259,24 @@ export default function HomePage() {
 
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
   const [communityLoading, setCommunityLoading] = useState(false);
+  const [communityLoadingMore, setCommunityLoadingMore] = useState(false);
+  const [communityHasMore, setCommunityHasMore] = useState(false);
+  const [communityCursor, setCommunityCursor] = useState<string | null>(null);
+  const [communityTotalCount, setCommunityTotalCount] = useState(0);
+  const [communityRefreshVersion, setCommunityRefreshVersion] = useState(0);
   const [communityError, setCommunityError] = useState("");
+  const [communitySection, setCommunitySection] = useState<"conversations" | "businesses">("conversations");
+  const [communityFilter, setCommunityFilter] = useState<"all" | "question" | "discovery" | "update" | "unanswered">("all");
+  const [availableBusinessTags, setAvailableBusinessTags] = useState<BusinessTagOption[]>([]);
+  const [taggedBusinessIds, setTaggedBusinessIds] = useState<string[]>([]);
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editingPostBody, setEditingPostBody] = useState("");
+  const [editingReplyId, setEditingReplyId] = useState<string | null>(null);
+  const [editingReplyBody, setEditingReplyBody] = useState("");
+  const [pinnedConversation, setPinnedConversation] = useState<CommunityPost | null>(null);
+  const [followedActivity, setFollowedActivity] = useState<Array<{ id: string; body: string; placeKey: string; placeName: string; author: { username: string; displayName: string }; createdAt: string; replyCount: number; isRemoteQuestion: boolean }>>([]);
+  const [followedActivityBusy, setFollowedActivityBusy] = useState(false);
+  const [followedActivityError, setFollowedActivityError] = useState("");
   const [postBody, setPostBody] = useState("");
   const [postType, setPostType] = useState<CommunityPost["type"]>("thought");
   const [askFromElsewhere, setAskFromElsewhere] = useState(false);
@@ -262,6 +290,7 @@ export default function HomePage() {
   const [replyBody, setReplyBody] = useState("");
   const [replyError, setReplyError] = useState("");
   const replyRequestRef = useRef(0);
+  const deepLinkRequestRef = useRef(0);
 
   const placeSupportsLiveHere = Boolean(
     selectedPlace && /^(node|way|relation)-[1-9]\d{0,17}$/.test(selectedPlace.id),
