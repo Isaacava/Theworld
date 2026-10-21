@@ -138,3 +138,14 @@ Use references to learn principles; do not reproduce another product's exact lay
 - Keep provider switching explicit, show a useful loading/error state, and return to the globe when the user switches back.
 - Do not imply that photorealistic 3D buildings are available everywhere; coverage varies by location.
 - Configure the browser key with website referrer restrictions and restrict it to the Maps JavaScript API. Never commit a real key.
+
+
+## Place conversations and local directory
+
+- A place panel has two meaningful sections: **Conversations** and **Businesses**. Keep both reachable in the mobile bottom sheet and in full-screen view.
+- Conversations should have a compact set of filters, an accurate result count, clear refresh/retry controls and incremental loading instead of loading an endless feed.
+- A conversation link should open the original post with its replies in focus; users need a direct way back to all conversations for that place.
+- Author-only edit and delete actions must be clearly separated from reporting other users' content.
+- Business listings sourced from the map must be labelled as mapped/unverified until a moderator has checked public evidence. Only verified listings can receive reviews, business questions/answers and booking requests.
+- Do not promise a booking is confirmed when the customer only sent a request. Display the status and keep review verification tied to a completed booking record.
+- A business dispute temporarily hides the review while moderator review is pending. Do not auto-label a disputed review fake or permanently remove it without a review decision.

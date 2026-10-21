@@ -215,6 +215,17 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Sign in to request a business listing." }, { status: 401 });
   try {
     const db = await getDatabase();
+    const nearbyCache = await db.collection("nearbyBusinessCache").findOne({
+      cacheKey: placeKey,
+      expiresAt: { $gt: new Date() },
+    });
+    const cachedCandidates = Array.isArray(nearbyCache?.businesses) ? nearbyCache.businesses : [];
+    const candidate = cachedCandidates.find((value) =>
+      value && typeof value === "object" && (value as Record<string, unknown>).osmPlaceKey === osmPlaceKey
+    ) as Record<string, unknown> | undefined;
+    if (!candidate || typeof candidate.name !== "string" || typeof candidate.category !== "string") {
+      return NextResponse.json({ error: "Choose a named shop or service from the nearby business directory before requesting verification." }, { status: 422 });
+    }
     const [place, business] = await Promise.all([
       getCanonicalOsmPlaceMetadata(db, placeKey),
       getCanonicalOsmPlaceMetadata(db, osmPlaceKey),

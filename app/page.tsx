@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  ArrowLeft,
   ArrowRight,
   ArrowUpRight,
   Bell,
@@ -2223,6 +2224,12 @@ export default function HomePage() {
                           <div className="reply-thread-error" role="alert">{replyError}</div>
                         ) : (
                           <>
+                            {replyHasMoreByPost[post.id] && (
+                              <button type="button" className="community-load-more reply-load-older" onClick={() => void loadOlderReplies(post)} disabled={replyLoadingOlderPostId === post.id}>
+                                {replyLoadingOlderPostId === post.id ? <span className="mini-spinner" /> : <ChevronDown size={14} />}
+                                {replyLoadingOlderPostId === post.id ? "Loading older replies…" : "Load older replies"}
+                              </button>
+                            )}
                             {(repliesByPost[post.id] || []).length === 0 ? (
                               <div className="reply-thread-empty">
                                 <strong>No replies yet.</strong>

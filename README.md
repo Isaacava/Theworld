@@ -447,3 +447,23 @@ The first usable prototype is ready when all of the following work:
 The globe attracts attention. Real places provide context. Conversations create connections. Place Memory builds lasting usefulness. Responsible business tools create a path to revenue.
 
 The first milestone is simple: **open the globe, find a real street, enter its community, and make the map-to-community experience work reliably.**
+
+
+## Place communities and local business directory
+
+Each place community is anchored to a canonical OpenStreetMap feature ID. Quick Picks resolve to real mapped places instead of creating local placeholder IDs. Place and conversation links use query parameters so users can share a place or open a particular discussion directly.
+
+The place screen includes conversation filters, unanswered questions, feed pagination, reply pagination, a focused conversation mode, share/edit/delete controls for authors, followed-community activity and refresh actions. Ordinary posts/replies retain the prototype presence check; Ask Locals questions resolve the real place identity without requiring a full boundary polygon.
+
+The **Businesses** section searches for named nearby shops and services from OpenStreetMap/Overpass. A map listing is not, by itself, a verified business. Requesting a directory listing requires public HTTPS evidence and a moderator decision. Only listings manually marked verified can receive user reviews, public business questions/answers, or booking requests. Booking requests are not confirmed until the business accepts them.
+
+Reviews are limited to one per account per business. A review is marked booking-verified only when linked to a booking that the listed business owner marked completed. A verified owner can dispute a review; the review is hidden from public rating totals while the dispute is reviewed by a moderator. A dispute does not automatically prove that a review is fake: moderators decide whether to restore or remove it. Business verification and dispute decisions are available at `/moderation/businesses` to administrator accounts.
+
+OpenStreetMap business candidates are attributed in the directory UI. Nearby business search depends on public Overpass availability and a six-hour cached result. If that service is unavailable, the directory displays a retry state. The feature does not imply that every real-world business is mapped or available.
+
+## Product boundaries
+
+- Current local-presence checks are a prototype safeguard, not proof of residency or security-grade identity verification.
+- A listing marked verified is manually reviewed by THE WORLD; do not describe an ordinary OpenStreetMap feature as owner-verified.
+- Business disputes are reviewed rather than automatically deleting every disputed review, to prevent owners from suppressing legitimate criticism.
+- Image uploads, automated ownership proof, payment collection, and third-party booking integrations are not enabled by this prototype.
