@@ -100,10 +100,13 @@ export async function GET(request: Request) {
         : Promise.resolve([]),
     ]);
     const likeCounts = new Map<string, number>(
-      likeGroups.map((row: { _id: ObjectId; count: number }) => [String(row._id), Number(row.count)]),
+      likeGroups.map((row) => {
+        const record = row as unknown as { _id: ObjectId; count: number };
+        return [String(record._id), Number(record.count)] as [string, number];
+      }),
     );
-    const liked = new Set(viewerLikes.map((row: { postId: ObjectId }) => String(row.postId)));
-    const bookmarked = new Set(viewerBookmarks.map((row: { postId: ObjectId }) => String(row.postId)));
+    const liked = new Set(viewerLikes.map((row) => String((row as unknown as { postId: ObjectId }).postId)));
+    const bookmarked = new Set(viewerBookmarks.map((row) => String((row as unknown as { postId: ObjectId }).postId)));
 
     return NextResponse.json({
       configured: true,

@@ -62,6 +62,7 @@ export async function POST(request: Request) {
       email: user.email,
       username: user.username,
       displayName: user.displayName,
+      bio: user.bio ?? "",
       createdAt: user.createdAt.toISOString(),
     };
     const response = NextResponse.json({ user: publicUser });

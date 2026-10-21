@@ -35,9 +35,18 @@ export async function GET() {
     ]);
 
     const postMap = new Map(posts.map((post) => [String(post._id), post]));
-    const communityMap = new Map(communities.map((community: { placeKey: string }) => [community.placeKey, community]));
-    const likeMap = new Map<string, number>(likeGroups.map((entry: { _id: ObjectId; count: number }) => [String(entry._id), Number(entry.count)]));
-    const replyMap = new Map<string, number>(replyGroups.map((entry: { _id: ObjectId; count: number }) => [String(entry._id), Number(entry.count)]));
+    const communityMap = new Map(communities.map((community) => {
+      const record = community as unknown as { placeKey: string };
+      return [record.placeKey, community] as [string, typeof community];
+    }));
+    const likeMap = new Map<string, number>(likeGroups.map((entry) => {
+      const record = entry as unknown as { _id: ObjectId; count: number };
+      return [String(record._id), Number(record.count)] as [string, number];
+    }));
+    const replyMap = new Map<string, number>(replyGroups.map((entry) => {
+      const record = entry as unknown as { _id: ObjectId; count: number };
+      return [String(record._id), Number(record.count)] as [string, number];
+    }));
 
     const bookmarks = saved.flatMap((item) => {
       const post = postMap.get(String(item.postId));
