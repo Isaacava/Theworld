@@ -37,7 +37,7 @@ export async function GET() {
     ]);
     const notifications = docs.map((item) => ({
       id: String(item._id),
-      type: item.type === "reply" ? "reply" : "like",
+      type: item.type === "reply" ? "reply" : item.type === "new_post" ? "new_post" : "like",
       actor: {
         username: String(item.actorUsername ?? "someone"),
         displayName: String(item.actorDisplayName ?? item.actorUsername ?? "Someone"),

@@ -1,6 +1,6 @@
 import type { Db, ObjectId } from "mongodb";
 
-export type NotificationType = "reply" | "like";
+export type NotificationType = "reply" | "like" | "new_post";
 export type NewNotification = {
   recipientId: ObjectId;
   actorId: ObjectId;

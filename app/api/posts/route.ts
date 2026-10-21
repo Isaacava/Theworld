@@ -6,6 +6,7 @@ import { getDatabase, isMongoConfigured } from "@/lib/mongodb";
 import { allowedRadius, validCoordinates } from "@/lib/location-check";
 import { distanceToGeoJsonMeters } from "@/lib/place-geometry.mjs";
 import { getCanonicalOsmPlace, getCanonicalOsmPlaceMetadata, PlaceLookupError } from "@/lib/osm-place";
+import { createNotification } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,82 +61,91 @@ function publicPost(document: Record<string, unknown>) {
     likesCount: typeof document.likesCount === "number" ? document.likesCount : 0,
     isLiked: document.isLiked === true,
     isBookmarked: document.isBookmarked === true,
+    taggedBusinesses: Array.isArray(document.taggedBusinesses)
+      ? document.taggedBusinesses.filter((item): item is { businessId: string; name: string } => Boolean(item && typeof item === "object" && typeof (item as { businessId?: unknown }).businessId === "string" && typeof (item as { name?: unknown }).name === "string")).slice(0, 3)
+      : [],
   };
 }
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const placeKey = url.searchParams.get("placeKey") || "";
+  const requestedType = url.searchParams.get("type") || "";
+  const unansweredOnly = url.searchParams.get("unanswered") === "1";
+  const before = url.searchParams.get("before") || "";
   if (!OSM_PLACE_KEY.test(placeKey)) {
-    return NextResponse.json({
-      posts: [],
-      configured: isMongoConfigured(),
-      message: "Choose a named mapped place to view its live community.",
-    });
+    return NextResponse.json({ posts: [], totalCount: 0, hasMore: false, nextCursor: null, configured: isMongoConfigured(), message: "Choose a named mapped place to view its live community." });
   }
-  if (!isMongoConfigured()) {
-    return NextResponse.json({ posts: [], configured: false, message: "Community storage is not connected yet. Configure MongoDB to enable persistent posts." }, { status: 503 });
-  }
+  if (requestedType && !POST_TYPES.has(requestedType)) return NextResponse.json({ error: "Choose a valid conversation filter." }, { status: 400 });
+  if (before && !/^[a-f\d]{24}$/i.test(before)) return NextResponse.json({ error: "That feed cursor is invalid." }, { status: 400 });
+  if (!isMongoConfigured()) return NextResponse.json({ posts: [], totalCount: 0, hasMore: false, nextCursor: null, configured: false, message: "Community storage is not connected yet. Configure MongoDB to enable persistent posts." }, { status: 503 });
 
   try {
     const db = await getDatabase();
     const viewer = await getCurrentUser().catch(() => null);
     const viewerId = viewer ? new ObjectId(viewer.id) : null;
-    const documents = await db.collection("posts").aggregate([
+    const pipeline: Record<string, unknown>[] = [
       { $match: { placeKey, status: "visible" } },
-      { $sort: { createdAt: -1 } },
-      { $limit: 30 },
-      {
-        $lookup: {
-          from: "replies",
-          localField: "_id",
-          foreignField: "postId",
-          pipeline: [{ $match: { status: "visible" } }, { $project: { _id: 1 } }],
-          as: "replyRecords",
-        },
-      },
+      { $lookup: {
+        from: "replies",
+        localField: "_id",
+        foreignField: "postId",
+        pipeline: [{ $match: { status: "visible" } }, { $project: { _id: 1 } }],
+        as: "replyRecords",
+      } },
       { $addFields: { replyCount: { $size: "$replyRecords" } } },
-      { $project: { body: 1, type: 1, placeKey: 1, placeName: 1, authorUsername: 1, authorDisplayName: 1, createdAt: 1, presenceVerifiedAt: 1, isRemoteQuestion: 1, replyCount: 1 } },
-    ]).toArray();
-
-    const postIds = documents.map((document) => document._id);
-    const [likeGroups, viewerLikes, viewerBookmarks] = await Promise.all([
-      postIds.length
-        ? db.collection("postLikes").aggregate([
-            { $match: { postId: { $in: postIds } } },
-            { $group: { _id: "$postId", count: { $sum: 1 } } },
-          ]).toArray()
-        : Promise.resolve([]),
-      viewerId && postIds.length
-        ? db.collection("postLikes").find({ postId: { $in: postIds }, userId: viewerId }).project({ postId: 1 }).toArray()
-        : Promise.resolve([]),
-      viewerId && postIds.length
-        ? db.collection("bookmarks").find({ postId: { $in: postIds }, userId: viewerId }).project({ postId: 1 }).toArray()
-        : Promise.resolve([]),
-    ]);
-    const likeCounts = new Map<string, number>(
-      likeGroups.map((row) => {
-        const record = row as unknown as { _id: ObjectId; count: number };
-        return [String(record._id), Number(record.count)] as [string, number];
-      }),
+    ];
+    if (requestedType) pipeline.push({ $match: { type: requestedType } });
+    if (unansweredOnly) pipeline.push({ $match: { type: "question", replyCount: 0 } });
+    const itemStages: Record<string, unknown>[] = [];
+    if (before) itemStages.push({ $match: { _id: { $lt: new ObjectId(before) } } });
+    itemStages.push(
+      { $sort: { _id: -1 } },
+      { $limit: 31 },
+      { $project: { body: 1, type: 1, placeKey: 1, placeName: 1, authorUsername: 1, authorDisplayName: 1, createdAt: 1, presenceVerifiedAt: 1, isRemoteQuestion: 1, replyCount: 1, taggedBusinesses: 1 } },
     );
+    pipeline.push({ $facet: { items: itemStages, total: [{ $count: "count" }] } });
+    const aggregated = await db.collection("posts").aggregate(pipeline).toArray();
+    const facet = aggregated[0] as { items?: Record<string, unknown>[]; total?: { count?: number }[] } | undefined;
+    const fetched = facet?.items ?? [];
+    const hasMore = fetched.length > 30;
+    const documents = fetched.slice(0, 30);
+    const totalCount = Number(facet?.total?.[0]?.count ?? 0);
+
+    const postIds = documents.map((document) => document._id).filter((value): value is ObjectId => value instanceof ObjectId);
+    const [likeGroups, viewerLikes, viewerBookmarks] = await Promise.all([
+      postIds.length ? db.collection("postLikes").aggregate([
+        { $match: { postId: { $in: postIds } } },
+        { $group: { _id: "$postId", count: { $sum: 1 } } },
+      ]).toArray() : Promise.resolve([]),
+      viewerId && postIds.length ? db.collection("postLikes").find({ postId: { $in: postIds }, userId: viewerId }).project({ postId: 1 }).toArray() : Promise.resolve([]),
+      viewerId && postIds.length ? db.collection("bookmarks").find({ postId: { $in: postIds }, userId: viewerId }).project({ postId: 1 }).toArray() : Promise.resolve([]),
+    ]);
+    const likeCounts = new Map<string, number>(likeGroups.map((row) => {
+      const record = row as unknown as { _id: ObjectId; count: number };
+      return [String(record._id), Number(record.count)] as [string, number];
+    }));
     const liked = new Set(viewerLikes.map((row) => String((row as unknown as { postId: ObjectId }).postId)));
     const bookmarked = new Set(viewerBookmarks.map((row) => String((row as unknown as { postId: ObjectId }).postId)));
-
+    const posts = documents.map((document) => {
+      const id = String(document._id);
+      return publicPost({
+        ...document,
+        likesCount: likeCounts.get(id) ?? 0,
+        isLiked: liked.has(id),
+        isBookmarked: bookmarked.has(id),
+      });
+    });
     return NextResponse.json({
       configured: true,
-      posts: documents.map((document) => {
-        const id = String(document._id);
-        return publicPost({
-          ...(document as unknown as Record<string, unknown>),
-          likesCount: likeCounts.get(id) ?? 0,
-          isLiked: liked.has(id),
-          isBookmarked: bookmarked.has(id),
-        });
-      }),
+      posts,
+      totalCount,
+      hasMore,
+      nextCursor: hasMore && documents.length ? String(documents[documents.length - 1]._id) : null,
+      filters: { type: requestedType || "all", unanswered: unansweredOnly },
     }, { headers: { "Cache-Control": "no-store" } });
   } catch {
-    return NextResponse.json({ posts: [], configured: true, message: "The community feed is temporarily unavailable." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ posts: [], totalCount: 0, hasMore: false, nextCursor: null, configured: true, message: "The community feed is temporarily unavailable." }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 }
 
@@ -168,6 +178,7 @@ export async function POST(request: Request) {
   const type = typeof values.type === "string" ? values.type : "thought";
   const placeInput = values.place as Partial<PlaceKeyInput> | undefined;
   const location = values.location as Partial<LocationInput> | undefined;
+  const rawBusinessIds = Array.isArray(values.businessIds) ? values.businessIds : [];
   const isRemoteQuestion = type === "question" && values.isRemoteQuestion === true;
   const verifiedLocation = isValidLocationInput(location) ? location : null;
   const placeKey = typeof placeInput?.placeKey === "string" ? placeInput.placeKey : "";
@@ -324,10 +335,31 @@ export async function POST(request: Request) {
       { upsert: true },
     );
 
+    if (rawBusinessIds.length > 3) {
+      return NextResponse.json({ error: "Tag no more than three verified businesses in a post." }, { status: 400 });
+    }
+    const businessIds = [...new Set(rawBusinessIds.filter((value): value is string => typeof value === "string"))];
+    if (businessIds.some((id) => !/^[a-f\d]{24}$/i.test(id))) {
+      return NextResponse.json({ error: "Choose valid verified business tags." }, { status: 400 });
+    }
+    let taggedBusinesses: { businessId: string; name: string }[] = [];
+    if (businessIds.length) {
+      const businessDocs = await db.collection("businesses").find({
+        _id: { $in: businessIds.map((id) => new ObjectId(id)) },
+        placeKey,
+        status: "verified",
+        verificationStatus: "verified",
+      }).project({ name: 1 }).toArray();
+      if (businessDocs.length !== businessIds.length) {
+        return NextResponse.json({ error: "Only verified businesses listed for this community can be tagged." }, { status: 422 });
+      }
+      taggedBusinesses = businessDocs.map((doc) => ({ businessId: String(doc._id), name: String(doc.name ?? "Local business") }));
+    }
     const document = {
       placeKey,
       placeName,
       placeDisplayName,
+      taggedBusinesses,
       body,
       type,
       authorId: userId,
@@ -342,6 +374,29 @@ export async function POST(request: Request) {
       verificationGeometryType: canonicalPlace?.geojson.type ?? null,
     };
     const result = await posts.insertOne(document);
+    // New posts in a followed community notify its followers. Notification
+    // failures never roll back the successful post.
+    try {
+      const followers = await db.collection("followedPlaces")
+        .find({ placeKey, userId: { $ne: userId } })
+        .project({ userId: 1 })
+        .limit(500)
+        .toArray();
+      await Promise.allSettled(followers.filter((row) => row.userId instanceof ObjectId).map((row) => createNotification(db, {
+        recipientId: row.userId as ObjectId,
+        actorId: userId,
+        actorUsername: user.username,
+        actorDisplayName: user.displayName,
+        type: "new_post",
+        postId: result.insertedId,
+        placeKey,
+        placeName,
+        coordinates: placeCoordinates,
+        eventKey: `new-post:${String(result.insertedId)}:${String(row.userId)}`,
+      })));
+    } catch (notificationError) {
+      console.warn("[THE WORLD] Could not notify community followers of new post:", notificationError);
+    }
     return NextResponse.json(
       { post: publicPost({ ...document, _id: result.insertedId }) },
       { status: 201 },
