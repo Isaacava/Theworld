@@ -2978,3 +2978,8 @@ button:disabled { cursor: not-allowed; }
 .moderation-content-state { color: var(--primary); font-size: 10px; }
 .moderation-content-state.is-hidden { color: var(--danger); }
 .moderation-content-missing { color: var(--quiet); font-size: 11px; font-style: italic; }
+
+
+/* Persistent place following */
+.follow-place-active { color: var(--primary); border-color: #cbdccb; background: var(--primary-soft); }
+.follow-place-hint { margin: 6px 0 0; color: var(--quiet); font-size: 10px; line-height: 1.6; }

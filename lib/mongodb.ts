@@ -55,6 +55,8 @@ export async function getDatabase(): Promise<Db> {
       db.collection("notifications").createIndex({ eventKey: 1 }, { unique: true, sparse: true, name: "notifications_event_unique" }),
       db.collection("reports").createIndex({ reporterId: 1, targetType: 1, targetId: 1 }, { unique: true, name: "reports_reporter_target_unique" }),
       db.collection("reports").createIndex({ status: 1, createdAt: -1 }, { name: "reports_status_recent" }),
+      db.collection("followedPlaces").createIndex({ userId: 1, placeKey: 1 }, { unique: true, name: "followed_places_user_place_unique" }),
+      db.collection("followedPlaces").createIndex({ userId: 1, followedAt: -1 }, { name: "followed_places_user_recent" }),
       db.collection("communities").createIndex({ placeKey: 1 }, { unique: true, name: "communities_place_key_unique" }),
       db.collection("placeVerificationCache").createIndex({ placeKey: 1 }, { unique: true, name: "place_verification_place_key_unique" }),
       db.collection("placeVerificationCache").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "place_verification_expiry_ttl" }),

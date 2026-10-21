@@ -54,6 +54,17 @@ import {
   type PlaceSearchResult,
 } from "@/lib/places";
 
+type FollowedPlace = {
+  placeKey: string;
+  name: string;
+  displayName: string;
+  subtitle: string;
+  kind: string;
+  coordinates: LngLat;
+  zoom: number;
+  followedAt: string;
+};
+
 type SelectedPlace = {
   id: string;
   name: string;
@@ -209,6 +220,12 @@ export default function HomePage() {
   const [profileBusy, setProfileBusy] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [savedPosts, setSavedPosts] = useState<SavedBookmark[]>([]);
+  const [followedPlaces, setFollowedPlaces] = useState<FollowedPlace[]>([]);
+  const [followedPlacesExpanded, setFollowedPlacesExpanded] = useState(false);
+  const [followedPlacesBusy, setFollowedPlacesBusy] = useState(false);
+  const [followedPlacesError, setFollowedPlacesError] = useState("");
+  const [followActionBusy, setFollowActionBusy] = useState(false);
+
   const [savedPostsExpanded, setSavedPostsExpanded] = useState(false);
   const [savedPostsBusy, setSavedPostsBusy] = useState(false);
   const [savedPostsError, setSavedPostsError] = useState("");
@@ -272,6 +289,34 @@ export default function HomePage() {
     setProfileBio(sessionUser?.bio ?? "");
     setProfileError("");
   }, [sessionUser?.id, sessionUser?.displayName, sessionUser?.bio]);
+
+  useEffect(() => {
+    if (!sessionUser?.id) {
+      setFollowedPlaces([]);
+      setFollowedPlacesError("");
+      setFollowedPlacesExpanded(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setFollowedPlacesBusy(true);
+    fetch("/api/followed-places", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Followed places are unavailable.");
+        setFollowedPlaces(Array.isArray(payload.places) ? payload.places as FollowedPlace[] : []);
+        setFollowedPlacesError("");
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setFollowedPlacesError(error instanceof Error ? error.message : "Followed places are unavailable.");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setFollowedPlacesBusy(false);
+      });
+    return () => controller.abort();
+  }, [sessionUser?.id]);
 
   useEffect(() => {
     let active = true;
@@ -1017,6 +1062,68 @@ export default function HomePage() {
     }
   }
 
+  async function toggleFollowPlace() {
+    if (!selectedPlace) return;
+    if (!placeSupportsLiveHere) {
+      showNotice("Choose a named mapped place to follow its community.");
+      return;
+    }
+    if (!sessionUser) {
+      setAuthMode("login");
+      setAuthModalOpen(true);
+      showNotice("Sign in to follow communities across visits.");
+      return;
+    }
+    if (followActionBusy) return;
+
+    const alreadyFollowing = followedPlaces.some((place) => place.placeKey === selectedPlace.id);
+    setFollowActionBusy(true);
+    setFollowedPlacesError("");
+    try {
+      const response = await fetch("/api/followed-places", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: alreadyFollowing ? "unfollow" : "follow",
+          placeKey: selectedPlace.id,
+          name: selectedPlace.name,
+          displayName: selectedPlace.displayName,
+          subtitle: selectedPlace.subtitle,
+          kind: selectedPlace.kind,
+          coordinates: selectedPlace.coordinates,
+          zoom: selectedPlace.zoom,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "We couldn't update your followed places.");
+      if (alreadyFollowing) {
+        setFollowedPlaces((current) => current.filter((place) => place.placeKey !== selectedPlace.id));
+        showNotice("You stopped following this community.");
+      } else {
+        const followed: FollowedPlace = {
+          placeKey: selectedPlace.id,
+          name: selectedPlace.name,
+          displayName: selectedPlace.displayName,
+          subtitle: selectedPlace.subtitle,
+          kind: selectedPlace.kind,
+          coordinates: selectedPlace.coordinates,
+          zoom: selectedPlace.zoom,
+          followedAt: new Date().toISOString(),
+        };
+        setFollowedPlaces((current) => current.some((place) => place.placeKey === followed.placeKey)
+          ? current
+          : [followed, ...current]);
+        showNotice("Community added to your followed places.");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "We couldn't update your followed places.";
+      setFollowedPlacesError(message);
+      showNotice(message);
+    } finally {
+      setFollowActionBusy(false);
+    }
+  }
+
   function locateNearby() {
     setActiveNav("nearby");
     setSavedViewOpen(false);
@@ -1099,6 +1206,11 @@ export default function HomePage() {
     setProjection("globe");
     showNotice("Returned to the world globe.");
   }
+
+  const isCurrentPlaceFollowed = useMemo(
+    () => selectedPlace && followedPlaces.some((place) => place.placeKey === selectedPlace.id),
+    [followedPlaces, selectedPlace],
+  );
 
   const isCurrentPlaceSaved = useMemo(
     () => selectedPlace && savedPlaces.some((place) => place.id === selectedPlace.id),
@@ -1452,7 +1564,20 @@ export default function HomePage() {
               >
                 <MessageCircle size={16} /> Add a post
               </button>
+              <button
+                type="button"
+                className={isCurrentPlaceFollowed ? "secondary-action follow-place-active" : "secondary-action"}
+                onClick={() => void toggleFollowPlace()}
+                disabled={!placeSupportsLiveHere || followActionBusy}
+                title={!placeSupportsLiveHere ? "Choose a named mapped place to follow its community." : undefined}
+              >
+                {followActionBusy ? <span className="mini-spinner" /> : isCurrentPlaceFollowed ? <Check size={16} /> : <Compass size={16} />}
+                {followActionBusy ? "Updating…" : isCurrentPlaceFollowed ? "Following community" : "Follow community"}
+              </button>
             </div>
+            {!placeSupportsLiveHere && (
+              <p className="follow-place-hint">Following is available for named mapped places. Choose a real street, venue or neighbourhood.</p>
+            )}
 
             <div className="place-card-divider" />
 
@@ -1863,6 +1988,57 @@ export default function HomePage() {
                     {profileBusy ? "Saving profile…" : "Save profile"}
                   </button>
                 </form>
+                <div className="saved-posts-section followed-places-section">
+                  <button
+                    type="button"
+                    className="saved-posts-toggle"
+                    onClick={() => setFollowedPlacesExpanded((expanded) => !expanded)}
+                    aria-expanded={followedPlacesExpanded}
+                  >
+                    <Compass size={16} />
+                    <span>Followed places{followedPlaces.length ? ` · ${followedPlaces.length}` : ""}</span>
+                    <ChevronRight size={15} className={followedPlacesExpanded ? "saved-posts-chevron open" : "saved-posts-chevron"} />
+                  </button>
+                  {followedPlacesExpanded && (
+                    <div className="saved-posts-content">
+                      {followedPlacesBusy ? (
+                        <div className="notification-empty">Loading followed places…</div>
+                      ) : followedPlacesError ? (
+                        <div className="notification-empty" role="alert">{followedPlacesError}</div>
+                      ) : followedPlaces.length === 0 ? (
+                        <div className="notification-empty">Follow a named place while exploring and it will stay here across visits.</div>
+                      ) : followedPlaces.map((place) => (
+                        <button
+                          key={place.placeKey}
+                          type="button"
+                          className="saved-post-row"
+                          onClick={() => {
+                            selectPlace({
+                              id: place.placeKey,
+                              name: place.name,
+                              subtitle: place.subtitle,
+                              displayName: place.displayName,
+                              kind: place.kind,
+                              coordinates: place.coordinates,
+                              zoom: place.zoom,
+                            });
+                            setAuthModalOpen(false);
+                            setFollowedPlacesExpanded(false);
+                            showNotice(`Opened ${place.name}.`);
+                          }}
+                        >
+                          <span className="saved-place-icon"><MapPin size={15} /></span>
+                          <span className="saved-post-row-copy">
+                            <strong>{place.name}</strong>
+                            <span>{place.subtitle || place.displayName}</span>
+                            <small>Following since {formatPostTime(place.followedAt)}</small>
+                          </span>
+                          <ChevronRight size={15} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="saved-posts-section">
                   <button type="button" className="saved-posts-toggle" onClick={() => void toggleSavedPosts()} aria-expanded={savedPostsExpanded}>
                     <Bookmark size={16} />

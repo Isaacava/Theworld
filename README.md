@@ -378,7 +378,7 @@ The first prototype should not require paid advertisements, payments, ticketing,
 
 - [ ] PLACE MEMORY.
 - [ ] ASK LOCALS.
-- [ ] Follow places and conversations.
+- [x] Follow places across visits with a persistent followed-community list; activity notifications for followed places remain planned.
 - [ ] Meaningful reply notifications.
 - [ ] Search improvements and cached results.
 - [ ] Basic contribution recognition.
