@@ -133,9 +133,8 @@ Use references to learn principles; do not reproduce another product's exact lay
 
 ## Map provider behavior
 
-- Google photorealistic 3D is the preferred main map whenever the browser Maps JavaScript API key is configured.
-- Keep OpenFreeMap/MapLibre as a no-key fallback so the app remains navigable during setup or a Google initialization failure.
-- Use Google's native 3D map controls in Google mode instead of layering a second set of zoom/tilt controls over them.
-- Keep the THE WORLD brand, search, place selection and community interface as the product layer above the map. The map is the canvas, not the whole product.
+- The OpenFreeMap/MapLibre globe remains the default, key-free exploration experience.
+- Google photorealistic 3D is an optional user-selected view. Do not make core place search, community access, or the default map depend on Google's key or coverage.
+- Keep provider switching explicit, show a useful loading/error state, and return to the globe when the user switches back.
 - Do not imply that photorealistic 3D buildings are available everywhere; coverage varies by location.
 - Configure the browser key with website referrer restrictions and restrict it to the Maps JavaScript API. Never commit a real key.

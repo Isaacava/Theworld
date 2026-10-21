@@ -295,7 +295,14 @@ const Google3DMap = forwardRef<GlobeMapHandle, Google3DMapProps>(
       let currentMap: Google3DElement | null = null;
 
       const markReady = () => {
-        if (!cancelled) statusCallbackRef.current("ready");
+        if (cancelled) return;
+        // Do not let the initial loading watchdog knock a successfully rendered
+        // Google map back to the fallback map 30 seconds later.
+        if (failedToLoadTimer) {
+          clearTimeout(failedToLoadTimer);
+          failedToLoadTimer = undefined;
+        }
+        statusCallbackRef.current("ready");
       };
       const handleSteadyChange = (event: Event) => {
         const isSteady = (event as Event & { isSteady?: unknown }).isSteady;
@@ -303,6 +310,10 @@ const Google3DMap = forwardRef<GlobeMapHandle, Google3DMapProps>(
       };
       const handleMapError = (event: Event) => {
         console.error("[THE WORLD] Google 3D map error:", event);
+        if (failedToLoadTimer) {
+          clearTimeout(failedToLoadTimer);
+          failedToLoadTimer = undefined;
+        }
         if (!cancelled) statusCallbackRef.current("error");
       };
       const handleClick = (event: Event) => {
