@@ -192,17 +192,73 @@ export async function GET(request: Request) {
     const place = await getCanonicalOsmPlaceMetadata(db, placeKey);
     const isCityLike = /city|town|municipality|village/i.test(place.kind);
     const loaded = await loadNearbyCommunities(db, placeKey, place.name, place.coordinates, isCityLike);
-    const keys = loaded.communities.map((item) => item.osmPlaceKey);
+    const [originLon, originLat] = place.coordinates;
+    const latitudeDelta = loaded.radiusMeters / 111320;
+    const longitudeDelta = loaded.radiusMeters / (111320 * Math.max(0.2, Math.cos(originLat * Math.PI / 180)));
+    // Also include previously active THE WORLD communities. This is how city
+    // screens discover streets with real posts even when Overpass omits their
+    // individual road features from its bounded result set.
+    const persistedCommunities = await db.collection("communities").find({
+      placeKey: { $ne: placeKey },
+      "coordinates.0": { $gte: originLon - longitudeDelta, $lte: originLon + longitudeDelta },
+      "coordinates.1": { $gte: originLat - latitudeDelta, $lte: originLat + latitudeDelta },
+    }).project({ placeKey: 1, name: 1, displayName: 1, kind: 1, coordinates: 1, lastActiveAt: 1 })
+      .sort({ lastActiveAt: -1 }).limit(300).toArray();
+
+    const candidateMap = new Map(loaded.communities.map((item) => [item.osmPlaceKey, item]));
+    for (const doc of persistedCommunities) {
+      const key = String(doc.placeKey ?? "");
+      if (!OSM_FEATURE_KEY.test(key) || key === placeKey ||
+          !Array.isArray(doc.coordinates) || doc.coordinates.length !== 2 ||
+          typeof doc.coordinates[0] !== "number" || typeof doc.coordinates[1] !== "number") continue;
+      const coordinates: [number, number] = [doc.coordinates[0], doc.coordinates[1]];
+      const distance = Math.round(distanceMeters(place.coordinates, coordinates));
+      if (distance > loaded.radiusMeters) continue;
+      const name = typeof doc.name === "string" ? doc.name.trim() : "";
+      if (name.length < 2) continue;
+      const displayName = typeof doc.displayName === "string" && doc.displayName.trim()
+        ? doc.displayName.slice(0, 500)
+        : `${name}, near ${place.name}`;
+      const rawKind = typeof doc.kind === "string" ? doc.kind : "Mapped place";
+      const kind = /road|street|highway|residential|tertiary|unclassified|pedestrian/i.test(rawKind) ? "Street" : rawKind;
+      const metadata = {
+        id: key,
+        osmPlaceKey: key,
+        name: name.slice(0, 160),
+        subtitle: displayName.split(",").slice(1, 3).join(", ").trim() || `${kind} · nearby mapped place`,
+        displayName,
+        kind,
+        coordinates,
+        zoom: /city|municipality/i.test(kind) ? 10 : /town|village|neighbourhood|neighborhood|suburb|quarter|district/i.test(kind) ? 13 : 15,
+        distanceMeters: distance,
+      };
+      const existing = candidateMap.get(key);
+      candidateMap.set(key, existing ? { ...metadata, ...existing, distanceMeters: distance } : metadata);
+    }
+
+    const allCandidates = [...candidateMap.values()];
+    const keys = allCandidates.map((item) => item.osmPlaceKey);
     const counts = keys.length ? await db.collection("posts").aggregate([
       { $match: { placeKey: { $in: keys }, status: "visible" } },
       { $group: { _id: "$placeKey", count: { $sum: 1 } } },
     ]).toArray() : [];
     const countMap = new Map(counts.map((row) => [String(row._id), Number(row.count ?? 0)]));
-    const communities: NearbyCommunity[] = loaded.communities.map((item) => ({
+    const orderedCandidates = allCandidates.sort((a, b) =>
+      Number((countMap.get(b.osmPlaceKey) ?? 0) > 0) - Number((countMap.get(a.osmPlaceKey) ?? 0) > 0) ||
+      a.distanceMeters - b.distanceMeters
+    );
+    const seenPlaceNames = new Set<string>();
+    const visibleCandidates = orderedCandidates.filter((item) => {
+      const identity = `${item.name.toLocaleLowerCase()}|${item.kind.toLocaleLowerCase()}`;
+      if (seenPlaceNames.has(identity)) return false;
+      seenPlaceNames.add(identity);
+      return true;
+    }).slice(0, 40);
+    const communities: NearbyCommunity[] = visibleCandidates.map((item) => ({
       ...item,
       conversationCount: countMap.get(item.osmPlaceKey) ?? 0,
     }));
-    const communityCoordinates = new Map(loaded.communities.map((item) => [item.osmPlaceKey, item.coordinates]));
+    const communityCoordinates = new Map(allCandidates.map((item) => [item.osmPlaceKey, item.coordinates]));
     const activityDocs = keys.length ? await db.collection("posts").aggregate([
       { $match: { placeKey: { $in: keys }, status: "visible" } },
       { $sort: { _id: -1 } },
