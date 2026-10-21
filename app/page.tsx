@@ -2138,6 +2138,10 @@ export default function HomePage() {
               <NearbyCommunities
                 place={{ id: selectedPlace.id, name: selectedPlace.name, displayName: selectedPlace.displayName, kind: selectedPlace.kind, coordinates: selectedPlace.coordinates }}
                 onSelect={(place) => selectPlace(place)}
+                onOpenConversation={(placeKey, postId) => {
+                  const params = new URLSearchParams({ place: placeKey, post: postId, view: "conversation" });
+                  window.location.href = "/?" + params.toString();
+                }}
               />
             ) : (
               <div className="community-feed-area">

@@ -133,6 +133,14 @@ Examples include helpful recommendations, answers to recurring questions, and di
 
 A remote-friendly way to ask a question about a place. People can ask before travelling, moving, attending an event, or visiting a business. Eligible local contributors can answer. These questions are distinct from LIVE HERE, which represents presence-verified local participation.
 
+### 🛍️ NEARBY BUSINESSES AND PLACE DISCOVERY
+
+Place screens have separate **Conversations**, **Businesses**, and **Nearby places** sections. The nearby-place list is sourced from OpenStreetMap, cached, and labelled as nearby rather than as a claim that a feature lies within an official city boundary. It shows conversation counts and a small preview of activity from those nearby communities; each post remains labelled with its actual mapped place and opens as a direct conversation.
+
+The business directory can show mapped shops and services near the selected place. A map listing is not itself a verified business listing. A business must be manually reviewed before it can accept booking requests, respond to customer questions, or receive public reviews. Available public map details such as opening hours, phone numbers, and HTTPS websites are shown only when the map data supplies them.
+
+Booking requests are not confirmed bookings until the business accepts them. Reviews are marked as completed-booking-verified only when linked to a booking the business marked completed. When a verified owner disputes a review, it is hidden from public ratings while a moderator reviews the evidence. A dispute alone does not prove a review is fake; a moderator can restore or remove it with a recorded reason.
+
 ### ⚡ WORLD PULSE
 
 A planned discovery layer for noteworthy community activity, unanswered questions, recent discussions, and public event conversations. Activity indicators should reflect genuine recent activity and should never expose individual users' live positions.

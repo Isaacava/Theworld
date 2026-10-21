@@ -264,7 +264,7 @@ export default function BusinessDirectory({ place, sessionUser, authConfigured, 
         {selected.description && <p className="business-public-description">{selected.description}</p>}
         <div className="business-contact-details">
           {selected.openingHours && <p><Clock3 size={13} /><span><strong>Hours</strong>{selected.openingHours}</span></p>}
-          {selected.phone && <p><MessageCircle size={13} /><span><strong>Phone</strong><a href={`tel:${selected.phone.replace(/[^+\\d]/g, "")}`}>{selected.phone}</a></span></p>}
+          {selected.phone && <p><MessageCircle size={13} /><span><strong>Phone</strong><a href={`tel:${selected.phone.replace(/[^+\d]/g, "")}`}>{selected.phone}</a></span></p>}
           {selected.website && <p><ExternalLink size={13} /><span><strong>Website</strong><a href={selected.website} target="_blank" rel="noreferrer noopener">Open official website</a></span></p>}
         </div>
         {selected.isVerified ? (

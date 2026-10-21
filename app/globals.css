@@ -3713,3 +3713,26 @@ button:disabled { cursor: not-allowed; }
 .business-contact-details strong { color: var(--text); font-size: 10px; }
 .business-contact-details a { color: var(--primary); font-weight: 600; overflow-wrap: anywhere; }
 .business-hours-line { color: var(--muted); font-size: 10px; line-height: 1.45; }
+
+
+/* Local activity preview within nearby place discovery */
+.nearby-area-activity { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.nearby-area-activity-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 5px; }
+.nearby-area-activity-heading h4 { margin: 4px 0 0; color: var(--text); font-size: 16px; font-weight: 650; letter-spacing: -.025em; }
+.nearby-area-activity-heading > span { color: var(--quiet); font-size: 10px; white-space: nowrap; }
+.nearby-area-activity-note { margin: 8px 0 12px; color: var(--muted); font-size: 10px; line-height: 1.55; }
+.nearby-area-activity-list { display: grid; gap: 9px; }
+.nearby-area-activity-card { padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.nearby-area-activity-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.nearby-area-post-place { display: inline-flex; min-width: 0; align-items: center; gap: 4px; color: var(--primary); font-size: 10px; font-weight: 700; overflow-wrap: anywhere; }
+.nearby-area-activity-meta > small { color: var(--quiet); font-size: 9px; white-space: nowrap; }
+.nearby-area-activity-author { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px; margin-top: 7px; }
+.nearby-area-activity-author strong { color: var(--text); font-size: 11px; }
+.nearby-area-activity-author small { color: var(--quiet); font-size: 9px; }
+.nearby-area-activity-card > p { margin: 8px 0 10px; color: var(--text); font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.nearby-area-activity-card > button { display: inline-flex; min-height: 30px; align-items: center; gap: 5px; padding: 5px 0; color: var(--primary); border: 0; background: transparent; font-size: 10px; font-weight: 700; cursor: pointer; }
+.nearby-area-activity-card > button span { margin-left: 5px; color: var(--quiet); font-weight: 500; }
+.nearby-area-activity-card > button:hover { text-decoration: underline; }
+.nearby-area-activity-empty { padding: 14px; border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--surface-soft); }
+.nearby-area-activity-empty strong { color: var(--text); font-size: 11px; }
+.nearby-area-activity-empty p { margin: 5px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }

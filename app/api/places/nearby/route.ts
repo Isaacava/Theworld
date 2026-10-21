@@ -202,9 +202,47 @@ export async function GET(request: Request) {
       ...item,
       conversationCount: countMap.get(item.osmPlaceKey) ?? 0,
     }));
+    const communityCoordinates = new Map(loaded.communities.map((item) => [item.osmPlaceKey, item.coordinates]));
+    const activityDocs = keys.length ? await db.collection("posts").aggregate([
+      { $match: { placeKey: { $in: keys }, status: "visible" } },
+      { $sort: { _id: -1 } },
+      { $limit: 20 },
+      { $lookup: {
+        from: "replies",
+        localField: "_id",
+        foreignField: "postId",
+        pipeline: [{ $match: { status: "visible" } }, { $project: { _id: 1 } }],
+        as: "replyRecords",
+      } },
+      { $addFields: { replyCount: { $size: "$replyRecords" } } },
+      { $project: { body: 1, type: 1, placeKey: 1, placeName: 1, placeDisplayName: 1, authorUsername: 1, authorDisplayName: 1, createdAt: 1, replyCount: 1, isRemoteQuestion: 1 } },
+    ]).toArray() : [];
+    const activity = activityDocs.flatMap((doc) => {
+      const placeKeyValue = String(doc.placeKey ?? "");
+      const coordinates = communityCoordinates.get(placeKeyValue);
+      if (!coordinates) return [];
+      const createdAt = doc.createdAt instanceof Date ? doc.createdAt.toISOString() : new Date(String(doc.createdAt ?? "")).toISOString();
+      return [{
+        id: String(doc._id),
+        body: String(doc.body ?? ""),
+        type: String(doc.type ?? "thought"),
+        placeKey: placeKeyValue,
+        placeName: String(doc.placeName ?? "Nearby place"),
+        placeDisplayName: String(doc.placeDisplayName ?? doc.placeName ?? "Nearby place"),
+        author: {
+          username: String(doc.authorUsername ?? "member"),
+          displayName: String(doc.authorDisplayName ?? doc.authorUsername ?? "Member"),
+        },
+        createdAt: Number.isFinite(new Date(createdAt).getTime()) ? createdAt : new Date(0).toISOString(),
+        replyCount: Number(doc.replyCount ?? 0),
+        isRemoteQuestion: doc.isRemoteQuestion === true,
+        coordinates,
+      }];
+    });
     return NextResponse.json({
       place: { id: place.placeKey, name: place.name, kind: place.kind, coordinates: place.coordinates },
       communities,
+      activity,
       radiusMeters: loaded.radiusMeters,
       cached: loaded.cached,
       stale: loaded.stale,
