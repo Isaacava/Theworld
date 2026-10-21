@@ -19,6 +19,19 @@ type LocationInput = {
   accuracy: number;
 };
 
+function isValidLocationInput(value: Partial<LocationInput> | undefined): value is LocationInput {
+  return Boolean(
+    value &&
+    typeof value.latitude === "number" &&
+    typeof value.longitude === "number" &&
+    typeof value.accuracy === "number" &&
+    validCoordinates(value.longitude, value.latitude) &&
+    Number.isFinite(value.accuracy) &&
+    value.accuracy > 0 &&
+    value.accuracy <= 100
+  );
+}
+
 type PlaceKeyInput = {
   placeKey: string;
 };
@@ -42,6 +55,7 @@ function publicPost(document: Record<string, unknown>) {
     presenceVerifiedAt: document.presenceVerifiedAt instanceof Date
       ? document.presenceVerifiedAt.toISOString()
       : null,
+    isRemoteQuestion: document.isRemoteQuestion === true,
     replyCount: typeof document.replyCount === "number" ? document.replyCount : 0,
     likesCount: typeof document.likesCount === "number" ? document.likesCount : 0,
     isLiked: document.isLiked === true,
@@ -81,7 +95,7 @@ export async function GET(request: Request) {
         },
       },
       { $addFields: { replyCount: { $size: "$replyRecords" } } },
-      { $project: { body: 1, type: 1, placeKey: 1, placeName: 1, authorUsername: 1, authorDisplayName: 1, createdAt: 1, presenceVerifiedAt: 1, replyCount: 1 } },
+      { $project: { body: 1, type: 1, placeKey: 1, placeName: 1, authorUsername: 1, authorDisplayName: 1, createdAt: 1, presenceVerifiedAt: 1, isRemoteQuestion: 1, replyCount: 1 } },
     ]).toArray();
 
     const postIds = documents.map((document) => document._id);
@@ -154,6 +168,8 @@ export async function POST(request: Request) {
   const type = typeof values.type === "string" ? values.type : "thought";
   const placeInput = values.place as Partial<PlaceKeyInput> | undefined;
   const location = values.location as Partial<LocationInput> | undefined;
+  const isRemoteQuestion = type === "question" && values.isRemoteQuestion === true;
+  const verifiedLocation = isValidLocationInput(location) ? location : null;
   const placeKey = typeof placeInput?.placeKey === "string" ? placeInput.placeKey : "";
 
   if (!OSM_PLACE_KEY.test(placeKey)) {
@@ -168,15 +184,7 @@ export async function POST(request: Request) {
   if (!POST_TYPES.has(type)) {
     return NextResponse.json({ error: "Choose a valid post type." }, { status: 400 });
   }
-  if (
-    typeof location?.latitude !== "number" ||
-    typeof location.longitude !== "number" ||
-    typeof location.accuracy !== "number" ||
-    !validCoordinates(location.longitude, location.latitude) ||
-    !Number.isFinite(location.accuracy) ||
-    location.accuracy <= 0 ||
-    location.accuracy > 100
-  ) {
+  if (!isRemoteQuestion && !verifiedLocation) {
     return NextResponse.json(
       { error: "A sufficiently accurate location check is required. Try outdoors or choose a nearby community." },
       { status: 422 },
@@ -214,7 +222,7 @@ export async function POST(request: Request) {
       posts.countDocuments({ authorId: userId, createdAt: { $gte: lastDay } }),
     ]);
 
-    if (recentAttempts >= 10 || dailyAttempts >= 50) {
+    if (!isRemoteQuestion && (recentAttempts >= 10 || dailyAttempts >= 50)) {
       return NextResponse.json(
         { error: recentAttempts >= 10
           ? "Too many location checks. Please wait a minute before trying again."
@@ -231,63 +239,71 @@ export async function POST(request: Request) {
       );
     }
 
-    await presenceAttempts.insertOne({
-      userId,
-      createdAt: now,
-      expiresAt: new Date(now.getTime() + 25 * 60 * 60 * 1000),
-    });
+    if (!isRemoteQuestion) {
+      await presenceAttempts.insertOne({
+        userId,
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + 25 * 60 * 60 * 1000),
+      });
+    }
 
-    // Crucially, do not trust name, type, centre coordinates, or geometry sent
-    // by the browser. Resolve the OSM ID on the server and use canonical data.
+    // Always resolve the place ID on the server. Remote questions can be
+    // attached to a real place without claiming that their author is nearby.
     const place = await getCanonicalOsmPlace(db, placeKey);
-    const currentCoordinates: [number, number] = [location.longitude, location.latitude];
-    const isAreaGeometry = place.geojson.type === "Polygon" || place.geojson.type === "MultiPolygon";
-    // Polygon interiors already represent the allowed area. Do not allow the
-    // broad "city radius" outside an area's mapped boundary.
-    const radius = isAreaGeometry ? 0 : allowedRadius(place.kind);
-    let distanceMeters: number;
+    let presenceVerifiedAt: Date | null = null;
+    let radius = 0;
 
-    try {
-      distanceMeters = distanceToGeoJsonMeters(currentCoordinates, place.geojson);
-    } catch {
-      return NextResponse.json(
-        { error: "We couldn't verify the mapped shape of this place. Choose another mapped location." },
-        { status: 422 },
-      );
+    if (!isRemoteQuestion) {
+      if (!verifiedLocation) {
+        return NextResponse.json(
+          { error: "A sufficiently accurate location check is required." },
+          { status: 422 },
+        );
+      }
+      const currentCoordinates: [number, number] = [verifiedLocation.longitude, verifiedLocation.latitude];
+      const isAreaGeometry = place.geojson.type === "Polygon" || place.geojson.type === "MultiPolygon";
+      // Polygon interiors already represent the allowed area. Do not allow the
+      // broad "city radius" outside an area's mapped boundary.
+      radius = isAreaGeometry ? 0 : allowedRadius(place.kind);
+      let distanceMeters: number;
+
+      try {
+        distanceMeters = distanceToGeoJsonMeters(currentCoordinates, place.geojson);
+      } catch {
+        return NextResponse.json(
+          { error: "We couldn't verify the mapped shape of this place. Choose another mapped location." },
+          { status: 422 },
+        );
+      }
+
+      if (!Number.isFinite(distanceMeters)) {
+        return NextResponse.json(
+          { error: "This mapped place has no usable geometry for a local presence check." },
+          { status: 422 },
+        );
+      }
+
+      const permittedDistance = radius + Math.min(verifiedLocation.accuracy, 25);
+      if (distanceMeters > permittedDistance) {
+        return NextResponse.json(
+          { error: "You appear to be too far from this place to post in LIVE HERE. Use Ask Locals if you want to enquire from elsewhere." },
+          { status: 403 },
+        );
+      }
+
+      presenceVerifiedAt = new Date();
     }
-
-    if (!Number.isFinite(distanceMeters)) {
-      return NextResponse.json(
-        { error: "This mapped place has no usable geometry for a local presence check." },
-        { status: 422 },
-      );
-    }
-
-    // GPS accuracy is an uncertainty estimate. A small, capped allowance helps
-    // with normal device error without letting a claimed 100 m accuracy expand
-    // the permitted area without bound.
-    const permittedDistance = radius + Math.min(location.accuracy, 25);
-    if (distanceMeters > permittedDistance) {
-      return NextResponse.json(
-        { error: "You appear to be too far from this place to post in LIVE HERE. Move closer to the mapped area and try again." },
-        { status: 403 },
-      );
-    }
-
-    const presenceVerifiedAt = new Date();
     await db.collection("communities").updateOne(
       { placeKey },
       {
+        // Keep each update path in only one operator. MongoDB rejects paths
+        // such as "name" appearing in both $setOnInsert and $set.
         $setOnInsert: {
           placeKey,
-          name: place.name,
-          displayName: place.displayName,
-          kind: place.kind,
-          coordinates: place.coordinates,
-          createdAt: presenceVerifiedAt,
+          createdAt: now,
         },
         $set: {
-          lastActiveAt: presenceVerifiedAt,
+          lastActiveAt: now,
           name: place.name,
           displayName: place.displayName,
           kind: place.kind,
@@ -307,10 +323,11 @@ export async function POST(request: Request) {
       authorUsername: user.username,
       authorDisplayName: user.displayName,
       status: "visible",
-      createdAt: presenceVerifiedAt,
+      createdAt: now,
       presenceVerifiedAt,
-      presenceMethod: "server-validated-osm-geometry-proximity",
-      verificationRadiusMeters: radius,
+      isRemoteQuestion,
+      presenceMethod: isRemoteQuestion ? "remote-question" : "server-validated-osm-geometry-proximity",
+      verificationRadiusMeters: isRemoteQuestion ? null : radius,
       verificationGeometryType: place.geojson.type,
     };
     const result = await posts.insertOne(document);
@@ -322,8 +339,12 @@ export async function POST(request: Request) {
     if (error instanceof PlaceLookupError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
+    console.error(
+      "[posts] Failed to publish a community post",
+      error instanceof Error ? { name: error.name, message: error.message } : "Unknown error",
+    );
     return NextResponse.json(
-      { error: "We couldn't publish this post. Check the database connection and try again." },
+      { error: "We couldn't publish this post. Please try again. If the problem continues, try another mapped place." },
       { status: 503 },
     );
   }

@@ -72,6 +72,7 @@ export async function GET(_request: Request, context: RouteContext) {
           placeDisplayName: 1,
           createdAt: 1,
           presenceVerifiedAt: 1,
+          isRemoteQuestion: 1,
           replyCount: 1,
         })
         .toArray(),
@@ -94,6 +95,7 @@ export async function GET(_request: Request, context: RouteContext) {
         presenceVerifiedAt: post.presenceVerifiedAt instanceof Date
           ? post.presenceVerifiedAt.toISOString()
           : null,
+        isRemoteQuestion: post.isRemoteQuestion === true,
         replyCount: typeof post.replyCount === "number" ? post.replyCount : 0,
       };
     });

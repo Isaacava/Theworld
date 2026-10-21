@@ -313,6 +313,8 @@ The application creates required indexes when the database is first used. If log
 - Raw browser coordinates are not stored in community posts or published to other users. The post stores a verification timestamp and method, not the user's location.
 - This is still a prototype safeguard, **not production-grade proof of physical presence**. Browser GPS can be spoofed, and the public Nominatim service is not a production geocoder. Email verification, robust login/register rate-limiting, account recovery, and content-removal tools remain unfinished. Reports for posts and replies are private, limited per account, and protected against duplicate submissions. Moderators can review or dismiss reports and separately hide or restore reported posts/replies at `/moderation` when their user document has `role: "admin"`. Content visibility changes are logged on the report and content record; reports are not public. Keep this test deployment access-controlled while broader anti-abuse controls are completed.
 
+- **Ask Locals questions:** An authenticated user can ask about a named mapped place without a GPS check by choosing Question and enabling “Ask locals from elsewhere.” These posts are visibly labelled, store no claimed presence verification, and remain distinct from LIVE HERE updates.
+
 ### Automated checks
 
 ```bash

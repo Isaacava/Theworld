@@ -88,6 +88,7 @@ type CommunityPost = {
   id: string;
   body: string;
   type: "thought" | "question" | "discovery" | "update";
+  isRemoteQuestion: boolean;
   placeKey: string;
   placeName: string;
   author: { username: string; displayName: string };
@@ -246,6 +247,7 @@ export default function HomePage() {
   const [communityError, setCommunityError] = useState("");
   const [postBody, setPostBody] = useState("");
   const [postType, setPostType] = useState<CommunityPost["type"]>("thought");
+  const [askFromElsewhere, setAskFromElsewhere] = useState(false);
   const [postBusy, setPostBusy] = useState(false);
   const [postError, setPostError] = useState("");
 
@@ -833,23 +835,27 @@ export default function HomePage() {
       setPostError("A post must contain 2–500 characters.");
       return;
     }
-    if (!("geolocation" in navigator)) {
-      setPostError("This browser doesn't support location checks. You can still explore public places.");
+    const isRemoteQuestion = postType === "question" && askFromElsewhere;
+    if (!isRemoteQuestion && !("geolocation" in navigator)) {
+      setPostError("This browser doesn't support location checks. Select Question and enable Ask Locals to enquire without a location check.");
       return;
     }
 
     setPostBusy(true);
     setPostError("");
-    showNotice("Checking your location…");
+    showNotice(isRemoteQuestion ? "Sending your question to this place's community…" : "Checking your location…");
 
     try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(
-          resolve,
-          reject,
-          { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
-        );
-      });
+      let position: GeolocationPosition | null = null;
+      if (!isRemoteQuestion) {
+        position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            resolve,
+            reject,
+            { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
+          );
+        });
+      }
 
       const response = await fetch("/api/posts", {
         method: "POST",
@@ -857,6 +863,7 @@ export default function HomePage() {
         body: JSON.stringify({
           body,
           type: postType,
+          isRemoteQuestion,
           place: {
             placeKey: selectedPlace.id,
             name: selectedPlace.name,
@@ -864,11 +871,11 @@ export default function HomePage() {
             kind: selectedPlace.kind,
             coordinates: selectedPlace.coordinates,
           },
-          location: {
+          location: position ? {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
             accuracy: position.coords.accuracy,
-          },
+          } : undefined,
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -892,13 +899,18 @@ export default function HomePage() {
         ...current.filter((post) => post.id !== payload.post.id),
       ].slice(0, 30));
       setPostBody("");
-      showNotice("Your contribution is now in this place's community.");
+      setAskFromElsewhere(false);
+      showNotice(isRemoteQuestion
+        ? "Your question is now posted for local people to answer."
+        : "Your contribution is now in this place's community.");
     } catch (error) {
       const locationError = error as GeolocationPositionError;
-      if (locationError?.code === 1) {
-        setPostError("Location permission was denied. Allow location access to post here.");
-      } else if (locationError?.code === 3) {
-        setPostError("The location check timed out. Try again where your GPS signal is clearer.");
+      if (!isRemoteQuestion && locationError?.code === 1) {
+        setPostError("Location permission was denied. Use Ask Locals on a question to enquire without sharing your location.");
+      } else if (!isRemoteQuestion && locationError?.code === 3) {
+        setPostError("The location check timed out. Try again where your GPS signal is clearer, or use Ask Locals for a question.");
+      } else if (isRemoteQuestion) {
+        setPostError("We couldn't publish your question. Please check your connection and try again.");
       } else {
         setPostError("We couldn't verify your location or reach the server. Please try again.");
       }
@@ -1621,7 +1633,13 @@ export default function HomePage() {
                         <Link className="profile-name-link" href={`/u/${encodeURIComponent(post.author.username)}`}><strong>{post.author.displayName || post.author.username}</strong></Link>
                         <small>@{post.author.username} · {formatPostTime(post.createdAt)}</small>
                       </div>
-                      <span className={`community-post-type type-${post.type}`}>{post.type}</span>
+                      <div className="community-post-labels">
+                        {post.isRemoteQuestion ? (
+                          <span className="remote-question-badge"><Globe size={11} /> Asking from elsewhere</span>
+                        ) : (
+                          <span className={`community-post-type type-${post.type}`}>{post.type}</span>
+                        )}
+                      </div>
                     </div>
                     <p className="community-post-body">{post.body}</p>
                     <div className="community-post-footer">
@@ -1793,7 +1811,11 @@ export default function HomePage() {
                 <form className="community-post-form" onSubmit={handlePublishPost}>
                   <select
                     value={postType}
-                    onChange={(event) => setPostType(event.target.value as CommunityPost["type"])}
+                    onChange={(event) => {
+                      const nextType = event.target.value as CommunityPost["type"];
+                      setPostType(nextType);
+                      if (nextType !== "question") setAskFromElsewhere(false);
+                    }}
                     aria-label="Post type"
                     disabled={postBusy}
                   >
@@ -1805,17 +1827,33 @@ export default function HomePage() {
                   <textarea
                     value={postBody}
                     onChange={(event) => setPostBody(event.target.value.slice(0, 500))}
-                    placeholder="What's worth sharing about this place?"
+                    placeholder={postType === "question" && askFromElsewhere
+                      ? "What would you like to know about this place?"
+                      : "What's worth sharing about this place?"}
                     maxLength={500}
                     rows={3}
-                    aria-label="Your local post"
+                    aria-label={postType === "question" && askFromElsewhere ? "Your question for local people" : "Your local post"}
                     disabled={postBusy || !placeSupportsLiveHere || authConfigured !== true}
                   />
+                  {postType === "question" && (
+                    <label className="remote-question-toggle">
+                      <input
+                        type="checkbox"
+                        checked={askFromElsewhere}
+                        onChange={(event) => setAskFromElsewhere(event.target.checked)}
+                        disabled={postBusy || !placeSupportsLiveHere || authConfigured !== true}
+                      />
+                      <span className="remote-question-toggle-copy">
+                        <strong><Globe size={13} /> Ask locals from elsewhere</strong>
+                        <small>Ask a question about this place without a location check. Your post will carry an “Asking from elsewhere” badge so readers know you’re enquiring, not claiming to be there.</small>
+                      </span>
+                    </label>
+                  )}
                   <div className="post-composer-bottom">
-                    <span>{postBody.length}/500 · Location check required</span>
+                    <span>{postBody.length}/500 · {postType === "question" && askFromElsewhere ? "No location check · Ask Locals" : "Location check required"}</span>
                     <button type="submit" disabled={postBusy || postBody.trim().length < 2 || !placeSupportsLiveHere || authConfigured !== true}>
                       {postBusy ? <span className="mini-spinner" /> : <Send size={14} />}
-                      {postBusy ? "Checking…" : "Post here"}
+                      {postBusy ? (postType === "question" && askFromElsewhere ? "Sending…" : "Checking…") : (postType === "question" && askFromElsewhere ? "Ask locals" : "Post here")}
                     </button>
                   </div>
                 </form>
@@ -1828,8 +1866,10 @@ export default function HomePage() {
                 </div>
               )}
               <div className="presence-note">
-                <ShieldCheck size={13} />
-                <span>Your exact coordinates are not published. The server checks the mapped OSM geometry. Browser GPS can still be spoofed, so this remains a prototype safeguard, not security-grade proof.</span>
+                {postType === "question" && askFromElsewhere ? <Globe size={13} /> : <ShieldCheck size={13} />}
+                <span>{postType === "question" && askFromElsewhere
+                  ? "Ask Locals questions do not request your GPS location. They’re clearly labelled so people nearby can answer based on local knowledge."
+                  : "Your exact coordinates are not published. The server checks the mapped OSM geometry. Browser GPS can still be spoofed, so this remains a prototype safeguard, not security-grade proof."}</span>
               </div>
             </div>
           </div>

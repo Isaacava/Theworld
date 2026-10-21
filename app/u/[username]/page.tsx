@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowLeft, CalendarDays, Compass, MapPin, MessageCircle, ShieldCheck } from "lucide-react";
+import { ArrowLeft, CalendarDays, Compass, Globe, MapPin, MessageCircle, ShieldCheck } from "lucide-react";
 
 type ProfilePost = {
   id: string;
@@ -13,6 +13,7 @@ type ProfilePost = {
   placeName: string;
   createdAt: string;
   presenceVerifiedAt: string | null;
+  isRemoteQuestion: boolean;
   replyCount: number;
 };
 
@@ -146,6 +147,7 @@ export default function PublicProfilePage() {
                       <article className="profile-post-card" key={post.id}>
                         <div className="profile-post-topline">
                           <span className={`profile-post-type profile-post-type-${post.type}`}>{post.type}</span>
+                          {post.isRemoteQuestion && <span className="profile-remote-question-badge"><Globe size={11} /> Asking from elsewhere</span>}
                           <time dateTime={post.createdAt}>{formatPostDate(post.createdAt)}</time>
                         </div>
                         <p className="profile-post-body">{post.body}</p>
