@@ -47,21 +47,41 @@ export async function GET(request: Request) {
       context.db.collection("reports").countDocuments({ status: "open" }),
       context.db.collection("reports").countDocuments({}),
     ]);
-    const reports = records.map((record) => ({
-      id: record._id instanceof ObjectId ? record._id.toHexString() : String(record._id),
-      targetType: typeof record.targetType === "string" ? record.targetType : "post",
-      targetId: record.targetId instanceof ObjectId ? record.targetId.toHexString() : "",
-      reporterUsername: typeof record.reporterUsername === "string" ? record.reporterUsername : "unknown",
-      targetAuthorUsername: typeof record.targetAuthorUsername === "string" ? record.targetAuthorUsername : "unknown",
-      targetBody: typeof record.targetBody === "string" ? record.targetBody : "",
-      placeName: typeof record.placeName === "string" ? record.placeName : "",
-      reason: typeof record.reason === "string" ? record.reason : "other",
-      details: typeof record.details === "string" ? record.details : "",
-      status: typeof record.status === "string" ? record.status : "open",
-      createdAt: safeIso(record.createdAt),
-      moderatedAt: record.moderatedAt ? safeIso(record.moderatedAt) : null,
-      moderatorUsername: typeof record.moderatorUsername === "string" ? record.moderatorUsername : null,
-    }));
+
+    const postIds = records.filter((record) => record.targetType === "post" && record.targetId instanceof ObjectId).map((record) => record.targetId as ObjectId);
+    const replyIds = records.filter((record) => record.targetType === "reply" && record.targetId instanceof ObjectId).map((record) => record.targetId as ObjectId);
+    const [postTargets, replyTargets] = await Promise.all([
+      postIds.length ? context.db.collection("posts").find({ _id: { $in: postIds } }).project({ status: 1 }).toArray() : Promise.resolve([]),
+      replyIds.length ? context.db.collection("replies").find({ _id: { $in: replyIds } }).project({ status: 1 }).toArray() : Promise.resolve([]),
+    ]);
+
+    const contentStatuses = new Map<string, "visible" | "hidden" | "missing">();
+    for (const target of postTargets) contentStatuses.set(`post:${String(target._id)}`, target.status === "visible" ? "visible" : "hidden");
+    for (const target of replyTargets) contentStatuses.set(`reply:${String(target._id)}`, target.status === "visible" ? "visible" : "hidden");
+
+    const reports = records.map((record) => {
+      const targetType = record.targetType === "reply" ? "reply" : "post";
+      const targetId = record.targetId instanceof ObjectId ? record.targetId.toHexString() : "";
+      return {
+        id: record._id instanceof ObjectId ? record._id.toHexString() : String(record._id),
+        targetType,
+        targetId,
+        contentStatus: contentStatuses.get(`${targetType}:${targetId}`) ?? "missing",
+        contentAction: typeof record.contentAction === "string" ? record.contentAction : null,
+        contentActionAt: record.contentActionAt ? safeIso(record.contentActionAt) : null,
+        contentActionByUsername: typeof record.contentActionByUsername === "string" ? record.contentActionByUsername : null,
+        reporterUsername: typeof record.reporterUsername === "string" ? record.reporterUsername : "unknown",
+        targetAuthorUsername: typeof record.targetAuthorUsername === "string" ? record.targetAuthorUsername : "unknown",
+        targetBody: typeof record.targetBody === "string" ? record.targetBody : "",
+        placeName: typeof record.placeName === "string" ? record.placeName : "",
+        reason: typeof record.reason === "string" ? record.reason : "other",
+        details: typeof record.details === "string" ? record.details : "",
+        status: typeof record.status === "string" ? record.status : "open",
+        createdAt: safeIso(record.createdAt),
+        moderatedAt: record.moderatedAt ? safeIso(record.moderatedAt) : null,
+        moderatorUsername: typeof record.moderatorUsername === "string" ? record.moderatorUsername : null,
+      };
+    });
     return NextResponse.json({ reports, openCount, totalCount }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ error: "We couldn't load reports. Please try again." }, { status: 503 });
@@ -78,20 +98,72 @@ export async function PATCH(request: Request) {
   try { input = await request.json(); } catch {
     return NextResponse.json({ error: "The request body is invalid." }, { status: 400 });
   }
-  if (!input || typeof input !== "object") return NextResponse.json({ error: "Choose a report and the new status." }, { status: 400 });
+  if (!input || typeof input !== "object") return NextResponse.json({ error: "Choose a report and the moderation action." }, { status: 400 });
 
   const values = input as Record<string, unknown>;
   const reportId = typeof values.reportId === "string" ? values.reportId : "";
+  const contentAction = typeof values.contentAction === "string" ? values.contentAction : "";
   const status = typeof values.status === "string" ? values.status : "";
-  if (!OBJECT_ID.test(reportId) || !VALID_STATUSES.has(status)) {
-    return NextResponse.json({ error: "That moderation update is invalid." }, { status: 400 });
-  }
+  if (!OBJECT_ID.test(reportId)) return NextResponse.json({ error: "That report identifier is invalid." }, { status: 400 });
 
   try {
+    const db = context.db;
     const now = new Date();
-    const result = await context.db.collection("reports").updateOne(
+    const moderatorId = new ObjectId(context.user.id);
+
+    if (Object.prototype.hasOwnProperty.call(values, "contentAction")) {
+      if (contentAction !== "hide" && contentAction !== "restore") {
+        return NextResponse.json({ error: "Choose whether to hide or restore the reported content." }, { status: 400 });
+      }
+      const report = await db.collection("reports").findOne({ _id: new ObjectId(reportId) });
+      if (!report || !(report.targetId instanceof ObjectId)) {
+        return NextResponse.json({ error: "That report or its target is no longer available." }, { status: 404 });
+      }
+      const targetType = report.targetType === "reply" ? "reply" : report.targetType === "post" ? "post" : "";
+      if (!targetType) return NextResponse.json({ error: "This report has an unsupported target." }, { status: 400 });
+
+      const targetCollection = db.collection(targetType === "post" ? "posts" : "replies");
+      const target = await targetCollection.findOne({ _id: report.targetId }, { projection: { status: 1 } });
+      if (!target) return NextResponse.json({ error: "The reported content no longer exists." }, { status: 404 });
+
+      const expectedStatus = contentAction === "hide" ? "visible" : "hidden";
+      const nextContentStatus = contentAction === "hide" ? "hidden" : "visible";
+      if (target.status !== expectedStatus) {
+        return NextResponse.json({ error: target.status === nextContentStatus
+          ? `This content is already ${nextContentStatus === "hidden" ? "hidden" : "visible"}.`
+          : "The content state has changed. Refresh the queue and try again." }, { status: 409 });
+      }
+
+      const changed = await targetCollection.updateOne(
+        { _id: report.targetId, status: expectedStatus },
+        { $set: {
+          status: nextContentStatus,
+          moderationUpdatedAt: now,
+          moderationUpdatedBy: moderatorId,
+          moderationUpdatedByUsername: context.user.username,
+        } },
+      );
+      if (changed.matchedCount === 0) return NextResponse.json({ error: "The content state changed. Refresh the queue and try again." }, { status: 409 });
+
+      await db.collection("reports").updateOne(
+        { _id: report._id },
+        { $set: {
+          contentAction,
+          contentStatus: nextContentStatus,
+          contentActionAt: now,
+          contentActionBy: moderatorId,
+          contentActionByUsername: context.user.username,
+        } },
+      );
+      return NextResponse.json({ success: true, contentAction, contentStatus: nextContentStatus, contentActionAt: now.toISOString() }, {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+
+    if (!VALID_STATUSES.has(status)) return NextResponse.json({ error: "Choose a valid report status." }, { status: 400 });
+    const result = await db.collection("reports").updateOne(
       { _id: new ObjectId(reportId), status: "open" },
-      { $set: { status, moderatedAt: now, moderatorId: new ObjectId(context.user.id), moderatorUsername: context.user.username } },
+      { $set: { status, moderatedAt: now, moderatorId, moderatorUsername: context.user.username } },
     );
     if (result.matchedCount === 0) return NextResponse.json({ error: "This report was already reviewed or no longer exists." }, { status: 409 });
     return NextResponse.json({ success: true, status, moderatedAt: now.toISOString() }, { headers: { "Cache-Control": "no-store" } });

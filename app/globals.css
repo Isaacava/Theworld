@@ -2971,3 +2971,10 @@ button:disabled { cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   .post-report-trigger,.reply-report-button { transition: none; }
 }
+
+
+/* Moderator content visibility controls */
+.moderation-content-action-row { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 15px; padding-top: 13px; border-top: 1px solid var(--line); }
+.moderation-content-state { color: var(--primary); font-size: 10px; }
+.moderation-content-state.is-hidden { color: var(--danger); }
+.moderation-content-missing { color: var(--quiet); font-size: 11px; font-style: italic; }

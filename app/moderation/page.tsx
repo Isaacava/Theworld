@@ -2,13 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Check, CircleAlert, Flag, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { ArrowLeft, Check, CircleAlert, Eye, EyeOff, Flag, RefreshCw, ShieldCheck, X } from "lucide-react";
 
 type ReportStatus = "open" | "reviewed" | "dismissed" | "all";
 type ModerationReport = {
   id: string;
   targetType: "post" | "reply";
   targetId: string;
+  contentStatus: "visible" | "hidden" | "missing";
+  contentAction: string | null;
+  contentActionAt: string | null;
+  contentActionByUsername: string | null;
   reporterUsername: string;
   targetAuthorUsername: string;
   targetBody: string;
@@ -92,6 +96,31 @@ export default function ModerationPage() {
     }
   }
 
+  async function updateContent(report: ModerationReport, nextAction: "hide" | "restore") {
+    if (activeReportId) return;
+    setActiveReportId(report.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/moderation/reports", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId: report.id, contentAction: nextAction }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(typeof payload.error === "string" ? payload.error : "The content state could not be updated.");
+        return;
+      }
+      setNotice(nextAction === "hide" ? "Content hidden from public feeds." : "Content restored to public feeds.");
+      setRefreshVersion((value) => value + 1);
+    } catch {
+      setError("The moderation service couldn't be reached. Please try again.");
+    } finally {
+      setActiveReportId("");
+    }
+  }
+
   return (
     <main className="moderation-page">
       <nav className="profile-page-nav" aria-label="Main navigation">
@@ -107,7 +136,7 @@ export default function ModerationPage() {
           <div>
             <span className="profile-overline">COMMUNITY SAFETY</span>
             <h1>Report review</h1>
-            <p>Review reports carefully. Marking a report reviewed or dismissed does not automatically remove the reported content.</p>
+            <p>Review each report, hide content that violates community rules, and restore it when appropriate. Review status and content visibility are separate actions.</p>
           </div>
           <button className="moderation-refresh" type="button" onClick={() => setRefreshVersion((value) => value + 1)} disabled={loading}>
             <RefreshCw size={14} /> Refresh queue
@@ -159,6 +188,31 @@ export default function ModerationPage() {
                   {report.placeName && <span>Place <strong>{report.placeName}</strong></span>}
                 </div>
                 {report.details && <div className="moderation-report-details"><strong>Additional context</strong><p>{report.details}</p></div>}
+                <div className="moderation-content-action-row">
+                  {report.contentStatus === "missing" ? (
+                    <span className="moderation-content-missing">Reported content no longer exists.</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className={report.contentStatus === "visible" ? "moderation-action dismiss" : "moderation-action review"}
+                      onClick={() => void updateContent(report, report.contentStatus === "visible" ? "hide" : "restore")}
+                      disabled={Boolean(activeReportId)}
+                    >
+                      {activeReportId === report.id ? <span className="mini-spinner" /> : report.contentStatus === "visible" ? <EyeOff size={14} /> : <Eye size={14} />}
+                      {report.contentStatus === "visible" ? "Hide content" : "Restore content"}
+                    </button>
+                  )}
+                  <span className={report.contentStatus === "hidden" ? "moderation-content-state is-hidden" : "moderation-content-state"}>
+                    {report.contentStatus === "visible" ? "Visible to the public" : report.contentStatus === "hidden" ? "Hidden from public feeds" : ""}
+                  </span>
+                </div>
+                {report.contentAction && report.contentActionAt && (
+                  <p className="moderation-reviewed-note">
+                    Content {report.contentAction === "hide" ? "hidden" : "restored"}
+                    {report.contentActionByUsername ? ` by @${report.contentActionByUsername}` : ""}
+                    { ` · ${formatDate(report.contentActionAt)}` }
+                  </p>
+                )}
                 {report.status === "open" ? (
                   <div className="moderation-actions">
                     <button type="button" className="moderation-action review" onClick={() => void updateReport(report.id, "reviewed")} disabled={Boolean(activeReportId)}>
