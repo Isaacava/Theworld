@@ -1,0 +1,217 @@
+import { NextResponse } from "next/server";
+import { getDatabase, isMongoConfigured } from "@/lib/mongodb";
+import { OSM_FEATURE_KEY } from "@/lib/businesses";
+import { getCanonicalOsmPlaceMetadata, PlaceLookupError } from "@/lib/osm-place";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+type OSMElement = {
+  type?: unknown;
+  id?: unknown;
+  lat?: unknown;
+  lon?: unknown;
+  center?: { lat?: unknown; lon?: unknown };
+  tags?: Record<string, unknown>;
+};
+
+type NearbyCommunity = {
+  id: string;
+  osmPlaceKey: string;
+  name: string;
+  subtitle: string;
+  displayName: string;
+  kind: string;
+  coordinates: [number, number];
+  zoom: number;
+  distanceMeters: number;
+  conversationCount: number;
+};
+
+function distanceMeters(a: [number, number], b: [number, number]) {
+  const radians = (n: number) => n * Math.PI / 180;
+  const dLat = radians(b[1] - a[1]);
+  const dLon = radians(b[0] - a[0]);
+  const lat1 = radians(a[1]);
+  const lat2 = radians(b[1]);
+  const h = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
+}
+
+function titleCase(value: string) {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()).slice(0, 80);
+}
+
+function normalizeElement(
+  item: OSMElement,
+  origin: [number, number],
+  selectedPlaceKey: string,
+  selectedPlaceName: string,
+): Omit<NearbyCommunity, "conversationCount"> | null {
+  if (!["node", "way", "relation"].includes(String(item.type)) ||
+      !Number.isSafeInteger(Number(item.id)) || Number(item.id) <= 0) return null;
+  const tags = item.tags && typeof item.tags === "object" ? item.tags : {};
+  const name = typeof tags.name === "string" ? tags.name.trim() : "";
+  const latitude = Number(item.lat ?? item.center?.lat);
+  const longitude = Number(item.lon ?? item.center?.lon);
+  if (name.length < 2 || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+      !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return null;
+
+  const osmPlaceKey = `${String(item.type)}-${Number(item.id)}`;
+  if (osmPlaceKey === selectedPlaceKey || name.toLocaleLowerCase() === selectedPlaceName.toLocaleLowerCase()) return null;
+
+  const placeKind = typeof tags.place === "string" ? tags.place : "";
+  const highwayKind = typeof tags.highway === "string" ? tags.highway : "";
+  if (!placeKind && !highwayKind) return null;
+  const kind = placeKind ? titleCase(placeKind) : "Street";
+  const coords: [number, number] = [longitude, latitude];
+  const suffix = [
+    tags["addr:suburb"],
+    tags["addr:city"],
+    tags["addr:state"],
+    tags["addr:country"],
+  ].filter((value) => typeof value === "string" && value.trim()).join(", ");
+  const displayName = suffix ? `${name}, ${suffix}` : `${name}, near ${selectedPlaceName}`;
+  const zoom = /city|municipality/i.test(placeKind) ? 10 :
+    /town|village|borough|district/i.test(placeKind) ? 12 :
+    /neighbourhood|neighborhood|suburb|quarter|locality|hamlet/i.test(placeKind) ? 13 : 15;
+
+  return {
+    id: osmPlaceKey,
+    osmPlaceKey,
+    name: name.slice(0, 160),
+    subtitle: placeKind ? `${kind} · nearby mapped place` : "Street · nearby mapped place",
+    displayName: displayName.slice(0, 500),
+    kind,
+    coordinates: coords,
+    zoom,
+    distanceMeters: Math.round(distanceMeters(origin, coords)),
+  };
+}
+
+async function loadNearbyCommunities(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  placeKey: string,
+  placeName: string,
+  center: [number, number],
+  isCityLike: boolean,
+) {
+  const now = new Date();
+  const cache = db.collection<{
+    cacheKey: string;
+    communities: Omit<NearbyCommunity, "conversationCount">[];
+    radiusMeters: number;
+    fetchedAt: Date;
+    expiresAt: Date;
+  }>("nearbyCommunityCache");
+  const [freshCache, staleCache] = await Promise.all([
+    cache.findOne({ cacheKey: placeKey, expiresAt: { $gt: now } }),
+    cache.findOne({ cacheKey: placeKey }),
+  ]);
+  const radiusMeters = isCityLike ? 12000 : 3500;
+  if (freshCache && Array.isArray(freshCache.communities)) {
+    return { communities: freshCache.communities, radiusMeters: freshCache.radiusMeters || radiusMeters, cached: true, stale: false };
+  }
+
+  const rates = db.collection<{ _id: string; nextAllowedAt: number }>("geocoderRateLimits");
+  const current = Date.now();
+  const previous = await rates.findOneAndUpdate(
+    { _id: "overpass-global" },
+    [{ $set: { nextAllowedAt: { $add: [{ $max: [{ $ifNull: ["$nextAllowedAt", current] }, current] }, 1000] } } } } }],
+    { upsert: true, returnDocument: "before" },
+  );
+  const delay = Math.max(0, (previous?.nextAllowedAt ?? current) - current);
+  if (delay > 2500) throw new Error("Nearby map discovery is busy. Try again shortly.");
+  if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+
+  const lat = center[1];
+  const lon = center[0];
+  const places = `nwr(around:${radiusMeters},${lat},${lon})["name"]["place"~"neighbourhood|suburb|quarter|borough|district|city|town|village|hamlet|locality|isolated_dwelling"];`;
+  const streets = isCityLike ? "" :
+    `nwr(around:${radiusMeters},${lat},${lon})["name"]["highway"~"residential|living_street|pedestrian|tertiary|unclassified"];`;
+  const query = `[out:json][timeout:8];(${places}${streets});out center tags 100;`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 9500);
+  let candidates: Omit<NearbyCommunity, "conversationCount">[] = [];
+  try {
+    const response = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        "Accept": "application/json",
+        "User-Agent": "THE-WORLD-prototype/0.1 (https://github.com/Isaacava/Theworld)",
+      },
+      body: new URLSearchParams({ data: query }),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error("Nearby map data is temporarily unavailable.");
+    const payload = await response.json() as { elements?: OSMElement[] };
+    const normalized = (Array.isArray(payload.elements) ? payload.elements : [])
+      .map((item) => normalizeElement(item, center, placeKey, placeName))
+      .filter((item): item is Omit<NearbyCommunity, "conversationCount"> => item !== null)
+      .filter((item) => item.distanceMeters <= radiusMeters)
+      .sort((a, b) => {
+        const aIsPlace = a.kind !== "Street";
+        const bIsPlace = b.kind !== "Street";
+        return Number(bIsPlace) - Number(aIsPlace) || a.distanceMeters - b.distanceMeters;
+      });
+
+    const seen = new Set<string>();
+    candidates = normalized.filter((item) => {
+      const key = `${item.name.toLocaleLowerCase()}|${item.kind.toLocaleLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 40);
+
+    await cache.updateOne(
+      { cacheKey: placeKey },
+      { $set: { cacheKey: placeKey, communities: candidates, radiusMeters, fetchedAt: now, expiresAt: new Date(now.getTime() + 6 * 60 * 60 * 1000) } },
+      { upsert: true },
+    );
+    return { communities: candidates, radiusMeters, cached: false, stale: false };
+  } catch (error) {
+    if (staleCache && Array.isArray(staleCache.communities)) {
+      return { communities: staleCache.communities, radiusMeters: staleCache.radiusMeters || radiusMeters, cached: true, stale: true };
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function GET(request: Request) {
+  const placeKey = new URL(request.url).searchParams.get("placeKey") || "";
+  if (!OSM_FEATURE_KEY.test(placeKey)) return NextResponse.json({ error: "Choose a real mapped place first." }, { status: 400 });
+  if (!isMongoConfigured()) return NextResponse.json({ error: "Nearby place discovery is unavailable until storage is connected." }, { status: 503 });
+
+  try {
+    const db = await getDatabase();
+    const place = await getCanonicalOsmPlaceMetadata(db, placeKey);
+    const isCityLike = /city|town|municipality|village/i.test(place.kind);
+    const loaded = await loadNearbyCommunities(db, placeKey, place.name, place.coordinates, isCityLike);
+    const keys = loaded.communities.map((item) => item.osmPlaceKey);
+    const counts = keys.length ? await db.collection("posts").aggregate([
+      { $match: { placeKey: { $in: keys }, status: "visible" } },
+      { $group: { _id: "$placeKey", count: { $sum: 1 } } },
+    ]).toArray() : [];
+    const countMap = new Map(counts.map((row) => [String(row._id), Number(row.count ?? 0)]));
+    const communities: NearbyCommunity[] = loaded.communities.map((item) => ({
+      ...item,
+      conversationCount: countMap.get(item.osmPlaceKey) ?? 0,
+    }));
+    return NextResponse.json({
+      place: { id: place.placeKey, name: place.name, kind: place.kind, coordinates: place.coordinates },
+      communities,
+      radiusMeters: loaded.radiusMeters,
+      cached: loaded.cached,
+      stale: loaded.stale,
+      source: "OpenStreetMap",
+    }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    if (error instanceof PlaceLookupError) return NextResponse.json({ error: error.message }, { status: error.status });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Nearby place discovery is temporarily unavailable." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
+}

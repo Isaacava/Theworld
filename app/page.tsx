@@ -52,6 +52,7 @@ import {
   type FormEvent,
 } from "react";
 import BusinessDirectory, { type BusinessTagOption } from "@/components/business-directory";
+import NearbyCommunities from "@/components/nearby-communities";
 import Google3DMap from "@/components/google-3d-map";
 import GlobeMap, {
   type GlobeMapHandle,
@@ -270,7 +271,7 @@ export default function HomePage() {
   const [communityTotalCount, setCommunityTotalCount] = useState(0);
   const [communityRefreshVersion, setCommunityRefreshVersion] = useState(0);
   const [communityError, setCommunityError] = useState("");
-  const [communitySection, setCommunitySection] = useState<"conversations" | "businesses">("conversations");
+  const [communitySection, setCommunitySection] = useState<"conversations" | "businesses" | "nearby">("conversations");
   const [communityFilter, setCommunityFilter] = useState<"all" | "question" | "discovery" | "update" | "unanswered">("all");
   const [communityConversationOnly, setCommunityConversationOnly] = useState(false);
   const [availableBusinessTags, setAvailableBusinessTags] = useState<BusinessTagOption[]>([]);
@@ -2106,6 +2107,9 @@ export default function HomePage() {
               <button type="button" role="tab" aria-selected={communitySection === "businesses"} className={communitySection === "businesses" ? "active" : ""} onClick={() => setCommunitySection("businesses")}>
                 <Building2 size={15} /> Businesses <span>{availableBusinessTags.length || ""}</span>
               </button>
+              <button type="button" role="tab" aria-selected={communitySection === "nearby"} className={communitySection === "nearby" ? "active" : ""} onClick={() => setCommunitySection("nearby")}>
+                <Compass size={15} /> Nearby places
+              </button>
             </div>
             </>}
             {communityConversationOnly ? (
@@ -2129,6 +2133,11 @@ export default function HomePage() {
                 authConfigured={authConfigured}
                 onSignIn={() => { setAuthMode("login"); setAuthError(""); setAuthModalOpen(true); }}
                 onBusinessesChange={handleBusinessTagsChange}
+              />
+            ) : communitySection === "nearby" ? (
+              <NearbyCommunities
+                place={{ id: selectedPlace.id, name: selectedPlace.name, displayName: selectedPlace.displayName, kind: selectedPlace.kind, coordinates: selectedPlace.coordinates }}
+                onSelect={(place) => selectPlace(place)}
               />
             ) : (
               <div className="community-feed-area">
