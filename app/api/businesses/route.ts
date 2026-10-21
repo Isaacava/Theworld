@@ -165,6 +165,17 @@ export async function GET(request: Request) {
     const keys = nearby.map((item) => item.osmPlaceKey);
     const conditions: Record<string, unknown>[] = [{ placeKey, status: "verified", verificationStatus: "verified" }];
     if (keys.length) conditions.push({ osmPlaceKey: { $in: keys }, status: "verified", verificationStatus: "verified" });
+    // Verified listings are discoverable even when the upstream map feed is
+    // down or omits a POI; use saved business coordinates as a bounded fallback.
+    const [centerLon, centerLat] = place.coordinates;
+    const latitudeDelta = 900 / 111320;
+    const longitudeDelta = 900 / (111320 * Math.max(0.2, Math.cos(centerLat * Math.PI / 180)));
+    conditions.push({
+      status: "verified",
+      verificationStatus: "verified",
+      "coordinates.0": { $gte: centerLon - longitudeDelta, $lte: centerLon + longitudeDelta },
+      "coordinates.1": { $gte: centerLat - latitudeDelta, $lte: centerLat + latitudeDelta },
+    });
     if (user) conditions.push({ claimantId: new ObjectId(user.id), status: "pending" });
     const docs = await db.collection("businesses").find({ $or: conditions }).limit(100).toArray();
     const byOsmKey = new Map(docs.map((doc) => [String(doc.osmPlaceKey), doc]));
