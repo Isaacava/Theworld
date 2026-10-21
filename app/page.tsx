@@ -277,6 +277,7 @@ export default function HomePage() {
   const [followedActivity, setFollowedActivity] = useState<Array<{ id: string; body: string; placeKey: string; placeName: string; author: { username: string; displayName: string }; createdAt: string; replyCount: number; isRemoteQuestion: boolean }>>([]);
   const [followedActivityBusy, setFollowedActivityBusy] = useState(false);
   const [followedActivityError, setFollowedActivityError] = useState("");
+  const [followedActivityRefresh, setFollowedActivityRefresh] = useState(0);
   const [postBody, setPostBody] = useState("");
   const [postType, setPostType] = useState<CommunityPost["type"]>("thought");
   const [askFromElsewhere, setAskFromElsewhere] = useState(false);
@@ -352,6 +353,36 @@ export default function HomePage() {
       });
     return () => controller.abort();
   }, [sessionUser?.id]);
+
+  useEffect(() => {
+    let active = true;
+    if (!sessionUser?.id) {
+      setFollowedActivity([]);
+      setFollowedActivityError("");
+      setFollowedActivityBusy(false);
+      return () => { active = false; };
+    }
+    if (followedPlaces.length === 0) {
+      setFollowedActivity([]);
+      setFollowedActivityError("");
+      setFollowedActivityBusy(false);
+      return () => { active = false; };
+    }
+    setFollowedActivityBusy(true);
+    setFollowedActivityError("");
+    fetch("/api/followed-places/activity", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!active) return;
+        if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "Followed activity is unavailable.");
+        setFollowedActivity(Array.isArray(payload.activity) ? payload.activity : []);
+      })
+      .catch((error: unknown) => {
+        if (active) setFollowedActivityError(error instanceof Error ? error.message : "Followed activity is unavailable.");
+      })
+      .finally(() => { if (active) setFollowedActivityBusy(false); });
+    return () => { active = false; };
+  }, [sessionUser?.id, followedPlaces.length, followedActivityRefresh]);
 
   useEffect(() => {
     let active = true;
@@ -1677,10 +1708,10 @@ export default function HomePage() {
                           className={item.readAt ? "notification-row" : "notification-row unread"}
                           onClick={() => void handleNotificationRead(item)}
                         >
-                          <span className="notification-row-icon">{item.type === "reply" ? <MessageCircle size={15} /> : <Heart size={15} />}</span>
+                          <span className="notification-row-icon">{item.type === "reply" || item.type === "new_post" ? <MessageCircle size={15} /> : <Heart size={15} />}</span>
                           <span className="notification-row-copy">
                             <strong>{item.actor.displayName}</strong>
-                            <span>{item.type === "reply" ? "replied to your conversation" : "liked your post"}</span>
+                            <span>{item.type === "reply" ? "replied to your conversation" : item.type === "new_post" ? "posted in a community you follow" : "liked your post"}</span>
                             <small>{item.placeName} · {formatPostTime(item.createdAt)}</small>
                           </span>
                           {!item.readAt && <span className="notification-unread-dot" />}
@@ -1842,6 +1873,32 @@ export default function HomePage() {
                 <p className="prototype-note">Saved places currently last for this browser session only.</p>
               </div>
             )}
+            <section className="followed-activity-section">
+              <div className="followed-activity-heading">
+                <div><span className="eyebrow">YOUR FOLLOWING</span><h3>Community activity</h3></div>
+                <button type="button" onClick={() => setFollowedActivityRefresh((version) => version + 1)} disabled={followedActivityBusy} aria-label="Refresh followed-community activity"><RefreshCw size={14} /></button>
+              </div>
+              {followedActivityError ? (
+                <div className="community-error-card"><ShieldCheck size={15} /><div><p>{followedActivityError}</p><button type="button" className="community-inline-retry" onClick={() => setFollowedActivityRefresh((version) => version + 1)}>Retry <RefreshCw size={12} /></button></div></div>
+              ) : followedActivityBusy ? (
+                <div className="community-loading-card"><span className="mini-spinner" /><span>Loading followed communities…</span></div>
+              ) : followedActivity.length === 0 ? (
+                <div className="community-empty-card"><strong>No new community activity</strong><p>Follow a mapped place to bring its latest conversations into this space.</p></div>
+              ) : (
+                <div className="followed-activity-list">
+                  {followedActivity.map((item) => (
+                    <button type="button" className="followed-activity-row" key={item.id} onClick={() => {
+                      const params = new URLSearchParams({ place: item.placeKey, post: item.id });
+                      window.location.href = "/?" + params.toString();
+                    }}>
+                      <span className="followed-activity-icon">{item.isRemoteQuestion ? <Globe size={15} /> : <MessageCircle size={15} />}</span>
+                      <span className="followed-activity-copy"><strong>{item.placeName}</strong><small>@{item.author.username} · {formatPostTime(item.createdAt)}</small><span>{item.body}</span><small>{item.replyCount} {item.replyCount === 1 ? "reply" : "replies"} · Open conversation</small></span>
+                      <ChevronRight size={15} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
         ) : selectedPlace ? (
           <div className="place-panel-content">
