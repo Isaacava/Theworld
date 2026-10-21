@@ -52,6 +52,7 @@ export async function POST(request: Request) {
     if (recentCount >= 10) return NextResponse.json({ error: "You've reached the reporting limit for today. Please try again later." }, { status: 429 });
 
     let target: {
+      [key: string]: unknown;
       authorId?: ObjectId;
       authorUsername?: string;
       body?: string;
