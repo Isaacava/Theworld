@@ -1167,6 +1167,91 @@ export default function HomePage() {
     [],
   );
 
+  const restoreLocationFromUrl = useCallback(async (clearWhenMissing = false) => {
+    const requestId = ++deepLinkRequestRef.current;
+    const params = new URLSearchParams(window.location.search);
+    const placeKey = params.get("place") || "";
+    const postId = params.get("post") || "";
+    if (!placeKey && !postId) {
+      if (clearWhenMissing) {
+        setSelectedPlace(null);
+        setPinnedConversation(null);
+        setReplyThreadPostId(null);
+        setMobilePanelOpen(false);
+        setMobilePanelExpanded(false);
+      }
+      return;
+    }
+    if (postId && !/^[a-f\d]{24}$/i.test(postId)) {
+      showNotice("That conversation link is invalid.");
+      return;
+    }
+    try {
+      let place: SelectedPlace | null = null;
+      let post: CommunityPost | null = null;
+      if (postId) {
+        const response = await fetch("/api/posts/" + encodeURIComponent(postId), { cache: "no-store" });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.post) throw new Error(typeof payload.error === "string" ? payload.error : "That conversation could not be opened.");
+        post = payload.post as CommunityPost;
+        const raw = payload.place as Record<string, unknown> | undefined;
+        if (raw && Array.isArray(raw.coordinates) && raw.coordinates.length === 2 &&
+            typeof raw.coordinates[0] === "number" && typeof raw.coordinates[1] === "number") {
+          place = {
+            id: String(raw.id ?? post.placeKey),
+            name: String(raw.name ?? post.placeName),
+            subtitle: String(raw.subtitle ?? ""),
+            displayName: String(raw.displayName ?? post.placeName),
+            kind: String(raw.kind ?? "Mapped place"),
+            coordinates: [raw.coordinates[0], raw.coordinates[1]],
+            zoom: /city|town|municipality/i.test(String(raw.kind ?? "")) ? 10 : 15,
+          };
+        }
+      }
+      if (!place && /^(node|way|relation)-[1-9]\d{0,17}$/.test(placeKey)) {
+        const response = await fetch("/api/places/by-id?placeKey=" + encodeURIComponent(placeKey), { cache: "no-store" });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.place) throw new Error(typeof payload.error === "string" ? payload.error : "That mapped place could not be opened.");
+        const raw = payload.place as Record<string, unknown>;
+        if (Array.isArray(raw.coordinates) && raw.coordinates.length === 2 &&
+            typeof raw.coordinates[0] === "number" && typeof raw.coordinates[1] === "number") {
+          place = {
+            id: String(raw.id ?? placeKey), name: String(raw.name ?? "Mapped place"),
+            subtitle: String(raw.subtitle ?? ""), displayName: String(raw.displayName ?? raw.name ?? "Mapped place"),
+            kind: String(raw.kind ?? "Mapped place"),
+            coordinates: [raw.coordinates[0], raw.coordinates[1]],
+            zoom: typeof raw.zoom === "number" ? raw.zoom : 15,
+          };
+        }
+      }
+      if (requestId !== deepLinkRequestRef.current) return;
+      if (!place) throw new Error("The place link doesn't identify a valid mapped community.");
+      setSelectedPlace(place);
+      setActiveNav("explore");
+      setSavedViewOpen(false);
+      setCommunitySection("conversations");
+      setMobilePanelOpen(true);
+      setMobilePanelExpanded(false);
+      setReplyThreadPostId(null);
+      setPinnedConversation(post);
+      mapRef.current?.flyTo(place.coordinates, place.zoom);
+      mapRef.current?.setMarker(place.coordinates);
+      if (post) {
+        window.setTimeout(() => { if (requestId === deepLinkRequestRef.current) void toggleReplyThread(post as CommunityPost); }, 0);
+      }
+    } catch (error) {
+      if (requestId === deepLinkRequestRef.current) showNotice(error instanceof Error ? error.message : "This place link could not be opened.");
+    }
+  }, [showNotice]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("place") || params.has("post")) void restoreLocationFromUrl(false);
+    const onPopState = () => { void restoreLocationFromUrl(true); };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [restoreLocationFromUrl]);
+
   const mapTapRequestRef = useRef(0);
 
   const handleMapClick = useCallback(
