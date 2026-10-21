@@ -295,8 +295,7 @@ export default function BusinessDirectory({ place, sessionUser, authConfigured, 
                       </form>
                     ) : <button className="business-text-button" type="button" onClick={() => setDisputeTarget(review.id)}>Dispute review</button>)}
                   </article>
-                ))}
-                )}
+                )))}
               </div>
             )}
             {section === "questions" && (
