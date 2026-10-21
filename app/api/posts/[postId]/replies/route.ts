@@ -6,6 +6,7 @@ import { getDatabase, isMongoConfigured } from "@/lib/mongodb";
 import { allowedRadius, validCoordinates } from "@/lib/location-check";
 import { distanceToGeoJsonMeters } from "@/lib/place-geometry.mjs";
 import { getCanonicalOsmPlace, PlaceLookupError } from "@/lib/osm-place";
+import { createNotification } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -238,6 +239,24 @@ export async function POST(request: Request, context: RouteContext) {
       verificationGeometryType: place.geojson.type,
     };
     const inserted = await replies.insertOne(document);
+    if (parent.authorId instanceof ObjectId && !parent.authorId.equals(userId)) {
+      try {
+        await createNotification(db, {
+          recipientId: parent.authorId,
+          actorId: userId,
+          actorUsername: user.username,
+          actorDisplayName: user.displayName,
+          type: "reply",
+          postId: parentId,
+          placeKey,
+          placeName: place.name,
+          coordinates: place.coordinates,
+          eventKey: `reply:${inserted.insertedId.toHexString()}`,
+        });
+      } catch (notificationError) {
+        console.warn("[THE WORLD] Could not create reply notification:", notificationError);
+      }
+    }
     return NextResponse.json(
       { reply: publicReply({ ...document, _id: inserted.insertedId }) },
       { status: 201, headers: { "Cache-Control": "no-store" } },

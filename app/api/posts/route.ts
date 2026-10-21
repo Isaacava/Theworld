@@ -43,6 +43,9 @@ function publicPost(document: Record<string, unknown>) {
       ? document.presenceVerifiedAt.toISOString()
       : null,
     replyCount: typeof document.replyCount === "number" ? document.replyCount : 0,
+    likesCount: typeof document.likesCount === "number" ? document.likesCount : 0,
+    isLiked: document.isLiked === true,
+    isBookmarked: document.isBookmarked === true,
   };
 }
 
@@ -57,58 +60,65 @@ export async function GET(request: Request) {
     });
   }
   if (!isMongoConfigured()) {
-    return NextResponse.json(
-      {
-        posts: [],
-        configured: false,
-        message: "Community storage is not connected yet. Configure MongoDB to enable persistent posts.",
-      },
-      { status: 503 },
-    );
+    return NextResponse.json({ posts: [], configured: false, message: "Community storage is not connected yet. Configure MongoDB to enable persistent posts." }, { status: 503 });
   }
 
   try {
     const db = await getDatabase();
-    const documents = await db.collection("posts")
-      .aggregate([
-        { $match: { placeKey, status: "visible" } },
-        { $sort: { createdAt: -1 } },
-        { $limit: 30 },
-        {
-          $lookup: {
-            from: "replies",
-            localField: "_id",
-            foreignField: "postId",
-            pipeline: [{ $match: { status: "visible" } }, { $project: { _id: 1 } }],
-            as: "replyRecords",
-          },
+    const viewer = await getCurrentUser().catch(() => null);
+    const viewerId = viewer ? new ObjectId(viewer.id) : null;
+    const documents = await db.collection("posts").aggregate([
+      { $match: { placeKey, status: "visible" } },
+      { $sort: { createdAt: -1 } },
+      { $limit: 30 },
+      {
+        $lookup: {
+          from: "replies",
+          localField: "_id",
+          foreignField: "postId",
+          pipeline: [{ $match: { status: "visible" } }, { $project: { _id: 1 } }],
+          as: "replyRecords",
         },
-        { $addFields: { replyCount: { $size: "$replyRecords" } } },
-        {
-          $project: {
-            body: 1,
-            type: 1,
-            placeKey: 1,
-            placeName: 1,
-            authorUsername: 1,
-            authorDisplayName: 1,
-            createdAt: 1,
-            presenceVerifiedAt: 1,
-            replyCount: 1,
-          },
-        },
-      ])
-      .toArray();
+      },
+      { $addFields: { replyCount: { $size: "$replyRecords" } } },
+      { $project: { body: 1, type: 1, placeKey: 1, placeName: 1, authorUsername: 1, authorDisplayName: 1, createdAt: 1, presenceVerifiedAt: 1, replyCount: 1 } },
+    ]).toArray();
+
+    const postIds = documents.map((document) => document._id);
+    const [likeGroups, viewerLikes, viewerBookmarks] = await Promise.all([
+      postIds.length
+        ? db.collection("postLikes").aggregate([
+            { $match: { postId: { $in: postIds } } },
+            { $group: { _id: "$postId", count: { $sum: 1 } } },
+          ]).toArray()
+        : Promise.resolve([]),
+      viewerId && postIds.length
+        ? db.collection("postLikes").find({ postId: { $in: postIds }, userId: viewerId }).project({ postId: 1 }).toArray()
+        : Promise.resolve([]),
+      viewerId && postIds.length
+        ? db.collection("bookmarks").find({ postId: { $in: postIds }, userId: viewerId }).project({ postId: 1 }).toArray()
+        : Promise.resolve([]),
+    ]);
+    const likeCounts = new Map<string, number>(
+      likeGroups.map((row: { _id: ObjectId; count: number }) => [String(row._id), Number(row.count)]),
+    );
+    const liked = new Set(viewerLikes.map((row: { postId: ObjectId }) => String(row.postId)));
+    const bookmarked = new Set(viewerBookmarks.map((row: { postId: ObjectId }) => String(row.postId)));
 
     return NextResponse.json({
       configured: true,
-      posts: documents.map((document) => publicPost(document as unknown as Record<string, unknown>)),
-    });
+      posts: documents.map((document) => {
+        const id = String(document._id);
+        return publicPost({
+          ...(document as unknown as Record<string, unknown>),
+          likesCount: likeCounts.get(id) ?? 0,
+          isLiked: liked.has(id),
+          isBookmarked: bookmarked.has(id),
+        });
+      }),
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch {
-    return NextResponse.json(
-      { posts: [], configured: true, message: "The community feed is temporarily unavailable." },
-      { status: 503 },
-    );
+    return NextResponse.json({ posts: [], configured: true, message: "The community feed is temporarily unavailable." }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 }
 

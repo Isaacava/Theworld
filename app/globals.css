@@ -2432,3 +2432,199 @@ button:disabled { cursor: not-allowed; }
   color: var(--primary);
   background: var(--primary-soft);
 }
+
+
+/* Social interactions, account profile editing, and notification centre. */
+.notification-shell { position: relative; flex: 0 0 auto; }
+.notification-button {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  cursor: pointer;
+}
+.notification-button:hover { background: var(--primary-soft); }
+.notification-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  place-items: center;
+  color: #fff;
+  border: 2px solid var(--surface);
+  border-radius: 999px;
+  background: #9c4b3e;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+.notification-popover {
+  position: absolute;
+  z-index: 95;
+  top: calc(100% + 10px);
+  right: -46px;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(68vh, 490px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 16px 42px rgba(32, 42, 37, 0.18);
+}
+.notification-popover-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.notification-popover-heading > div { display: grid; gap: 3px; }
+.notification-popover-heading strong { color: var(--text); font-size: 13px; font-weight: 650; }
+.notification-popover-heading small { color: var(--muted); font-size: 11px; }
+.notification-popover-heading > button {
+  padding: 5px 0 5px 7px;
+  color: var(--primary);
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.notification-empty { padding: 18px 14px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.notification-list { display: grid; }
+.notification-row {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  color: var(--text);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+.notification-row:last-child { border-bottom: 0; }
+.notification-row:hover, .notification-row.unread { background: var(--surface-soft); }
+.notification-row-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--primary);
+  border: 1px solid #d9e4da;
+  border-radius: 8px;
+  background: var(--primary-soft);
+}
+.notification-row-copy { display: grid; flex: 1; min-width: 0; gap: 3px; line-height: 1.4; }
+.notification-row-copy strong { color: var(--text); font-size: 12px; font-weight: 650; }
+.notification-row-copy > span { color: var(--muted); font-size: 11px; }
+.notification-row-copy small { color: var(--quiet); font-size: 10px; }
+.notification-unread-dot { width: 7px; height: 7px; flex: 0 0 auto; margin-top: 6px; border-radius: 50%; background: var(--primary); }
+.post-reaction-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+}
+.post-reaction-button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 11px;
+  cursor: pointer;
+}
+.post-reaction-button:hover { border-color: #bdcfbf; background: var(--surface-soft); }
+.post-reaction-button.is-active { color: var(--primary); border-color: #c9d9cb; background: var(--primary-soft); }
+.profile-form { display: grid; gap: 11px; margin-top: 14px; }
+.profile-form label { display: grid; gap: 5px; }
+.profile-form label > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text); font-size: 12px; font-weight: 600; }
+.profile-form label > span small { color: var(--muted); font-size: 10px; font-weight: 500; }
+.profile-form input, .profile-form textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 11px;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.profile-form input { min-height: 41px; }
+.profile-form textarea { min-height: 78px; resize: vertical; }
+.profile-form input:focus, .profile-form textarea:focus { outline: 2px solid #9fb9a3; outline-offset: 1px; }
+.profile-form .auth-submit { margin-top: 0; }
+.saved-posts-section { margin-top: 14px; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.saved-posts-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 43px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  color: var(--text);
+  border: 0;
+  background: var(--surface-soft);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.saved-posts-toggle > svg:first-child { color: var(--primary); }
+.saved-posts-toggle span { flex: 1; }
+.saved-posts-chevron { color: var(--muted); transition: transform 140ms ease; }
+.saved-posts-chevron.open { transform: rotate(90deg); }
+.saved-posts-content { display: grid; max-height: 270px; overflow: auto; }
+.saved-post-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 11px;
+  color: var(--text);
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+.saved-post-row:hover { background: var(--surface-soft); }
+.saved-post-row-copy { display: grid; flex: 1; min-width: 0; gap: 4px; }
+.saved-post-row-copy strong { font-size: 12px; font-weight: 650; }
+.saved-post-row-copy > span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.saved-post-row-copy small { color: var(--quiet); font-size: 10px; }
+.saved-post-row > svg { flex: 0 0 auto; color: var(--quiet); }
+
+@media (max-width: 700px) {
+  .notification-popover { right: -78px; width: min(340px, calc(100vw - 20px)); }
+  .auth-modal { padding: 24px 18px 20px; }
+}

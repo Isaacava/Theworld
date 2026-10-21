@@ -42,6 +42,7 @@ export async function POST(request: Request) {
       email: string;
       username: string;
       displayName: string;
+      bio?: string;
       passwordSalt: string;
       passwordHash: string;
       createdAt: Date;

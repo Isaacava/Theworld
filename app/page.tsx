@@ -3,12 +3,14 @@
 import {
   ArrowRight,
   ArrowUpRight,
+  Bell,
   Bookmark,
   Building2,
   Check,
   ChevronRight,
   Compass,
   Globe,
+  Heart,
   Layers,
   LocateFixed,
   LogIn,
@@ -65,6 +67,7 @@ type SessionUser = {
   email: string;
   username: string;
   displayName: string;
+  bio: string;
   createdAt: string;
 };
 
@@ -78,6 +81,39 @@ type CommunityPost = {
   createdAt: string;
   presenceVerifiedAt: string | null;
   replyCount: number;
+  likesCount: number;
+  isLiked: boolean;
+  isBookmarked: boolean;
+};
+
+type SavedBookmark = {
+  id: string;
+  savedAt: string;
+  post: {
+    id: string;
+    body: string;
+    type: string;
+    placeKey: string;
+    placeName: string;
+    placeDisplayName: string;
+    coordinates: LngLat | null;
+    author: { username: string; displayName: string };
+    createdAt: string;
+    likesCount: number;
+    replyCount: number;
+  };
+};
+
+type WorldNotification = {
+  id: string;
+  type: "reply" | "like";
+  actor: { username: string; displayName: string };
+  postId: string;
+  placeKey: string;
+  placeName: string;
+  coordinates: LngLat | null;
+  createdAt: string;
+  readAt: string | null;
 };
 
 type CommunityReply = {
@@ -163,6 +199,19 @@ export default function HomePage() {
   const [authPassword, setAuthPassword] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [profileDisplayName, setProfileDisplayName] = useState("");
+  const [profileBio, setProfileBio] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const [savedPosts, setSavedPosts] = useState<SavedBookmark[]>([]);
+  const [savedPostsExpanded, setSavedPostsExpanded] = useState(false);
+  const [savedPostsBusy, setSavedPostsBusy] = useState(false);
+  const [savedPostsError, setSavedPostsError] = useState("");
+  const [notifications, setNotifications] = useState<WorldNotification[]>([]);
+  const [notificationsUnread, setNotificationsUnread] = useState(0);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationsBusy, setNotificationsBusy] = useState(false);
+  const [notificationsError, setNotificationsError] = useState("");
 
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
   const [communityLoading, setCommunityLoading] = useState(false);
@@ -208,6 +257,47 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    setProfileDisplayName(sessionUser?.displayName ?? "");
+    setProfileBio(sessionUser?.bio ?? "");
+    setProfileError("");
+  }, [sessionUser?.id, sessionUser?.displayName, sessionUser?.bio]);
+
+  useEffect(() => {
+    let active = true;
+    if (!sessionUser?.id) {
+      setNotifications([]);
+      setNotificationsUnread(0);
+      setNotificationsOpen(false);
+      setNotificationsError("");
+      return () => { active = false; };
+    }
+
+    const loadNotifications = async () => {
+      setNotificationsBusy(true);
+      try {
+        const response = await fetch("/api/notifications", { cache: "no-store" });
+        const payload = await response.json().catch(() => ({}));
+        if (!active) return;
+        if (!response.ok) {
+          setNotificationsError(typeof payload.error === "string" ? payload.error : "Notifications are unavailable.");
+          return;
+        }
+        setNotifications(Array.isArray(payload.notifications) ? payload.notifications as WorldNotification[] : []);
+        setNotificationsUnread(typeof payload.unreadCount === "number" ? payload.unreadCount : 0);
+        setNotificationsError("");
+      } catch {
+        if (active) setNotificationsError("Couldn't refresh notifications. Check your connection.");
+      } finally {
+        if (active) setNotificationsBusy(false);
+      }
+    };
+
+    void loadNotifications();
+    const interval = window.setInterval(() => { void loadNotifications(); }, 60000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [sessionUser?.id]);
+
+  useEffect(() => {
     let active = true;
     const placeKey = selectedPlace?.id || "";
     if (!placeKey || !/^(node|way|relation)-[1-9]\d{0,17}$/.test(placeKey)) {
@@ -245,7 +335,7 @@ export default function HomePage() {
       });
 
     return () => { active = false; };
-  }, [selectedPlace?.id]);
+  }, [selectedPlace?.id, sessionUser?.id]);
 
   async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -283,6 +373,172 @@ export default function HomePage() {
       setAuthError("The account service couldn't be reached. Please try again.");
     } finally {
       setAuthBusy(false);
+    }
+  }
+
+  async function handleProfileSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (profileBusy || !sessionUser) return;
+    const displayName = profileDisplayName.trim();
+    const bio = profileBio.trim();
+    if (displayName.length < 2 || displayName.length > 40) {
+      setProfileError("Display name must contain 2–40 characters.");
+      return;
+    }
+    if (bio.length > 160) {
+      setProfileError("Your bio must be 160 characters or fewer.");
+      return;
+    }
+
+    setProfileBusy(true);
+    setProfileError("");
+    try {
+      const response = await fetch("/api/auth/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName, bio }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.user) {
+        setProfileError(typeof payload.error === "string" ? payload.error : "We couldn't save your profile.");
+        return;
+      }
+      setSessionUser(payload.user as SessionUser);
+      showNotice("Profile saved.");
+    } catch {
+      setProfileError("The profile service couldn't be reached. Please try again.");
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
+  async function toggleSavedPosts() {
+    if (!sessionUser) {
+      setAuthMode("login");
+      setAuthModalOpen(true);
+      return;
+    }
+    if (savedPostsExpanded) {
+      setSavedPostsExpanded(false);
+      return;
+    }
+    setSavedPostsExpanded(true);
+    setSavedPostsBusy(true);
+    setSavedPostsError("");
+    try {
+      const response = await fetch("/api/bookmarks", { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setSavedPostsError(typeof payload.error === "string" ? payload.error : "Saved posts couldn't be loaded.");
+        return;
+      }
+      setSavedPosts(Array.isArray(payload.bookmarks) ? payload.bookmarks as SavedBookmark[] : []);
+    } catch {
+      setSavedPostsError("The saved-post service couldn't be reached. Please try again.");
+    } finally {
+      setSavedPostsBusy(false);
+    }
+  }
+
+  async function handlePostAction(post: CommunityPost, kind: "like" | "bookmark") {
+    if (!sessionUser) {
+      setAuthMode("login");
+      setAuthError("");
+      setAuthModalOpen(true);
+      return;
+    }
+    if (authConfigured !== true) {
+      showNotice("Post interactions need the connected database. Please try again shortly.");
+      return;
+    }
+    const action = kind === "like"
+      ? (post.isLiked ? "unlike" : "like")
+      : (post.isBookmarked ? "unbookmark" : "bookmark");
+    try {
+      const response = await fetch(`/api/posts/${encodeURIComponent(post.id)}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 401) {
+          setSessionUser(null);
+          setAuthMode("login");
+          setAuthModalOpen(true);
+        }
+        showNotice(typeof payload.error === "string" ? payload.error : "That post action failed. Try again.");
+        return;
+      }
+      setCommunityPosts((current) => current.map((item) => item.id === post.id ? {
+        ...item,
+        likesCount: typeof payload.likesCount === "number" ? payload.likesCount : item.likesCount,
+        isLiked: typeof payload.isLiked === "boolean" ? payload.isLiked : item.isLiked,
+        isBookmarked: typeof payload.isBookmarked === "boolean" ? payload.isBookmarked : item.isBookmarked,
+      } : item));
+      if (kind === "bookmark") {
+        setSavedPosts([]);
+        setSavedPostsExpanded(false);
+      }
+      showNotice(kind === "like"
+        ? (payload.isLiked ? "Added your like." : "Like removed.")
+        : (payload.isBookmarked ? "Post saved to your bookmarks." : "Removed from saved posts."));
+    } catch {
+      showNotice("Couldn't update that post. Check your connection and try again.");
+    }
+  }
+
+  async function handleNotificationRead(notification: WorldNotification) {
+    if (!notification.readAt) {
+      try {
+        const response = await fetch("/api/notifications", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notificationId: notification.id }),
+        });
+        if (response.ok) {
+          const readAt = new Date().toISOString();
+          setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, readAt } : item));
+          setNotificationsUnread((current) => Math.max(0, current - 1));
+        }
+      } catch {
+        setNotificationsError("Couldn't mark this notification as read.");
+      }
+    }
+    setNotificationsOpen(false);
+    if (notification.coordinates && /^(node|way|relation)-[1-9]\d{0,17}$/.test(notification.placeKey)) {
+      selectPlace({
+        id: notification.placeKey,
+        name: notification.placeName,
+        subtitle: "Community activity",
+        displayName: notification.placeName,
+        kind: "Mapped place",
+        coordinates: notification.coordinates,
+        zoom: 15,
+      });
+      showNotice(notification.type === "reply"
+        ? `${notification.actor.displayName} replied to a conversation at ${notification.placeName}.`
+        : `${notification.actor.displayName} liked a post at ${notification.placeName}.`);
+    } else {
+      setSearchValue(notification.placeName);
+      setSearchOpen(true);
+      showNotice(`Search for ${notification.placeName} to return to this conversation.`);
+    }
+  }
+
+  async function markAllNotificationsRead() {
+    try {
+      const response = await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markAll: true }),
+      });
+      if (!response.ok) throw new Error("Notification update failed");
+      setNotifications((current) => current.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() })));
+      setNotificationsUnread(0);
+      setNotificationsError("");
+    } catch {
+      setNotificationsError("Couldn't mark notifications as read. Please try again.");
     }
   }
 
@@ -902,6 +1158,55 @@ export default function HomePage() {
 
         <div className="topbar-right">
           <span className="preview-label">Preview</span>
+          {sessionUser && (
+            <div className="notification-shell">
+              <button
+                className="avatar-mark notification-button"
+                type="button"
+                onClick={() => setNotificationsOpen((open) => !open)}
+                aria-label={notificationsUnread ? `Notifications, ${notificationsUnread} unread` : "Notifications"}
+                aria-expanded={notificationsOpen}
+                title="Notifications"
+              >
+                <Bell size={17} />
+                {notificationsUnread > 0 && <span className="notification-count">{notificationsUnread > 99 ? "99+" : notificationsUnread}</span>}
+              </button>
+              {notificationsOpen && (
+                <section className="notification-popover" aria-label="Notifications">
+                  <div className="notification-popover-heading">
+                    <div><strong>Notifications</strong><small>{notificationsUnread ? `${notificationsUnread} unread` : "You're all caught up"}</small></div>
+                    {notificationsUnread > 0 && <button type="button" onClick={() => void markAllNotificationsRead()}>Mark all read</button>}
+                  </div>
+                  {notificationsBusy && notifications.length === 0 ? (
+                    <div className="notification-empty">Loading notifications…</div>
+                  ) : notificationsError ? (
+                    <div className="notification-empty" role="alert">{notificationsError}</div>
+                  ) : notifications.length === 0 ? (
+                    <div className="notification-empty">Likes and replies to your posts will appear here.</div>
+                  ) : (
+                    <div className="notification-list">
+                      {notifications.map((item) => (
+                        <button
+                          type="button"
+                          key={item.id}
+                          className={item.readAt ? "notification-row" : "notification-row unread"}
+                          onClick={() => void handleNotificationRead(item)}
+                        >
+                          <span className="notification-row-icon">{item.type === "reply" ? <MessageCircle size={15} /> : <Heart size={15} />}</span>
+                          <span className="notification-row-copy">
+                            <strong>{item.actor.displayName}</strong>
+                            <span>{item.type === "reply" ? "replied to your conversation" : "liked your post"}</span>
+                            <small>{item.placeName} · {formatPostTime(item.createdAt)}</small>
+                          </span>
+                          {!item.readAt && <span className="notification-unread-dot" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+            </div>
+          )}
           <button
             className="avatar-mark account-button"
             type="button"
@@ -1136,6 +1441,30 @@ export default function HomePage() {
                     <div className="community-post-footer">
                       <span><MapPin size={12} /> {post.placeName || selectedPlace?.name}</span>
                       {post.presenceVerifiedAt && <span><ShieldCheck size={12} /> Presence checked</span>}
+                    </div>
+
+                    <div className="post-reaction-bar">
+                      <button
+                        type="button"
+                        className={post.isLiked ? "post-reaction-button is-active" : "post-reaction-button"}
+                        onClick={() => void handlePostAction(post, "like")}
+                        aria-pressed={post.isLiked}
+                        aria-label={post.isLiked ? "Unlike post" : "Like post"}
+                      >
+                        <Heart size={15} fill={post.isLiked ? "currentColor" : "none"} />
+                        <span>{post.likesCount || 0}</span>
+                        <span>{post.likesCount === 1 ? "like" : "likes"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={post.isBookmarked ? "post-reaction-button is-active" : "post-reaction-button"}
+                        onClick={() => void handlePostAction(post, "bookmark")}
+                        aria-pressed={post.isBookmarked}
+                        aria-label={post.isBookmarked ? "Remove saved post" : "Save post"}
+                      >
+                        <Bookmark size={15} fill={post.isBookmarked ? "currentColor" : "none"} />
+                        <span>{post.isBookmarked ? "Saved" : "Save"}</span>
+                      </button>
                     </div>
 
                     <button
@@ -1407,6 +1736,81 @@ export default function HomePage() {
                 <div className="auth-user-card">
                   <span className="account-initial">{sessionUser.username.slice(0, 1).toUpperCase()}</span>
                   <span><strong>@{sessionUser.username}</strong><small>{sessionUser.email}</small></span>
+                </div>
+                <form className="profile-form" onSubmit={(event) => void handleProfileSave(event)}>
+                  <label>
+                    <span>Display name</span>
+                    <input
+                      value={profileDisplayName}
+                      onChange={(event) => setProfileDisplayName(event.target.value.slice(0, 40))}
+                      maxLength={40}
+                      minLength={2}
+                      required
+                      autoComplete="name"
+                      disabled={profileBusy}
+                    />
+                  </label>
+                  <label>
+                    <span>Bio <small>{profileBio.length}/160</small></span>
+                    <textarea
+                      value={profileBio}
+                      onChange={(event) => setProfileBio(event.target.value.slice(0, 160))}
+                      maxLength={160}
+                      rows={3}
+                      placeholder="A little about you and the places you care about."
+                      disabled={profileBusy}
+                    />
+                  </label>
+                  {profileError && <p className="post-error" role="alert">{profileError}</p>}
+                  <button className="auth-submit" type="submit" disabled={profileBusy}>
+                    {profileBusy ? <span className="mini-spinner" /> : <Check size={16} />}
+                    {profileBusy ? "Saving profile…" : "Save profile"}
+                  </button>
+                </form>
+                <div className="saved-posts-section">
+                  <button type="button" className="saved-posts-toggle" onClick={() => void toggleSavedPosts()} aria-expanded={savedPostsExpanded}>
+                    <Bookmark size={16} />
+                    <span>Saved posts</span>
+                    <ChevronRight size={15} className={savedPostsExpanded ? "saved-posts-chevron open" : "saved-posts-chevron"} />
+                  </button>
+                  {savedPostsExpanded && (
+                    <div className="saved-posts-content">
+                      {savedPostsBusy ? <div className="notification-empty">Loading saved posts…</div>
+                      : savedPostsError ? <div className="notification-empty" role="alert">{savedPostsError}</div>
+                      : savedPosts.length === 0 ? <div className="notification-empty">Posts you save from a community will appear here.</div>
+                      : savedPosts.map((item) => (
+                        <button key={item.id} type="button" className="saved-post-row" onClick={() => {
+                          const post = item.post;
+                          if (!post.coordinates || !/^(node|way|relation)-[1-9]\d{0,17}$/.test(post.placeKey)) {
+                            setSearchValue(post.placeName);
+                            setSearchOpen(true);
+                            setAuthModalOpen(false);
+                            showNotice(`Search for ${post.placeName} to find this saved conversation.`);
+                            return;
+                          }
+                          selectPlace({
+                            id: post.placeKey,
+                            name: post.placeName,
+                            subtitle: "Saved community",
+                            displayName: post.placeDisplayName,
+                            kind: "Mapped place",
+                            coordinates: post.coordinates,
+                            zoom: 15,
+                          });
+                          setAuthModalOpen(false);
+                          setSavedPostsExpanded(false);
+                          showNotice(`Opened ${post.placeName}.`);
+                        }}>
+                          <span className="saved-post-row-copy">
+                            <strong>{item.post.placeName}</strong>
+                            <span>{item.post.body}</span>
+                            <small>@{item.post.author.username} · {formatPostTime(item.post.createdAt)} · {item.post.likesCount} likes</small>
+                          </span>
+                          <ChevronRight size={15} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <button className="auth-submit auth-logout" type="button" onClick={() => void handleSignOut()}>
                   <LogOut size={16} /> Sign out

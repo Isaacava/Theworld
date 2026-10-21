@@ -14,6 +14,7 @@ export type PublicUser = {
   email: string;
   username: string;
   displayName: string;
+  bio: string;
   createdAt: string;
 };
 
@@ -129,6 +130,7 @@ export async function getCurrentUser(): Promise<PublicUser | null> {
     email: user.email,
     username: user.username,
     displayName: user.displayName,
+    bio: (user as UserRecord & { bio?: string }).bio ?? "",
     createdAt: user.createdAt.toISOString(),
   };
 }

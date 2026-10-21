@@ -69,6 +69,7 @@ export async function POST(request: Request) {
       email,
       username,
       displayName: username,
+      bio: "",
       createdAt: now.toISOString(),
     };
     const response = NextResponse.json({ user: publicUser }, { status: 201 });
