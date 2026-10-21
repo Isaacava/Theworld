@@ -24,6 +24,10 @@ type NearbyBusiness = {
   address: string;
   coordinates: [number, number];
   source: "OpenStreetMap";
+  phone?: string;
+  website?: string;
+  openingHours?: string;
+  description?: string;
   isVerified: boolean;
   businessId: string | null;
   isOwner?: boolean;
@@ -38,6 +42,16 @@ function haversineMeters(a: [number, number], b: [number, number]) {
   const lat2 = radians(b[1]);
   const q = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
   return 6371000 * 2 * Math.atan2(Math.sqrt(q), Math.sqrt(Math.max(0, 1 - q)));
+}
+
+function safeHttpsUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim().length > 500) return undefined;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" && url.hostname ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function normalizeElement(item: OSMElement): Omit<NearbyBusiness, "isVerified" | "businessId" | "status"> | null {
@@ -67,6 +81,14 @@ function normalizeElement(item: OSMElement): Omit<NearbyBusiness, "isVerified" |
     address: address.slice(0, 300),
     coordinates: [longitude, latitude],
     source: "OpenStreetMap",
+    ...(typeof (tags["contact:phone"] ?? tags.phone ?? tags["contact:mobile"]) === "string"
+      ? { phone: String(tags["contact:phone"] ?? tags.phone ?? tags["contact:mobile"]).trim().slice(0, 80) }
+      : {}),
+    ...(safeHttpsUrl(tags["contact:website"] ?? tags.website ?? tags.url)
+      ? { website: safeHttpsUrl(tags["contact:website"] ?? tags.website ?? tags.url) }
+      : {}),
+    ...(typeof tags.opening_hours === "string" ? { openingHours: tags.opening_hours.trim().slice(0, 220) } : {}),
+    ...(typeof tags.description === "string" ? { description: tags.description.trim().slice(0, 400) } : {}),
   };
 }
 

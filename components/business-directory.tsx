@@ -14,6 +14,7 @@ type BusinessItem = {
   id: string; osmPlaceKey: string; name: string; category: string; address: string;
   coordinates: [number, number]; status: "nearby" | "pending" | "verified"; isVerified: boolean;
   businessId: string | null; isOwner?: boolean; isListed?: boolean; website?: string;
+  phone?: string; openingHours?: string; description?: string;
 };
 type Review = { id: string; rating: number; body: string; author: { username: string; displayName: string }; createdAt: string; verificationStatus: "verified" | "unverified"; bookingId: string | null };
 type Question = { id: string; body: string; author: { username: string; displayName: string }; createdAt: string; answer: string | null; answeredAt: string | null };
@@ -83,7 +84,16 @@ export default function BusinessDirectory({ place, sessionUser, authConfigured, 
         isVerified: item.isVerified === true, businessId: item.id,
       })) : [];
       const all = new Map<string, BusinessItem>();
-      for (const item of [...listedItems, ...nearbyItems]) all.set(item.osmPlaceKey, { ...all.get(item.osmPlaceKey), ...item, isListed: item.isVerified || item.status === "verified" });
+      for (const item of [...listedItems, ...nearbyItems]) {
+        const previous = all.get(item.osmPlaceKey);
+        all.set(item.osmPlaceKey, {
+          ...previous,
+          ...item,
+          // Prefer the URL submitted and checked during listing verification.
+          website: previous?.website ?? item.website,
+          isListed: item.isVerified || item.status === "verified",
+        });
+      }
       const sorted = [...all.values()].sort((a,b) => Number(b.isVerified) - Number(a.isVerified) || a.name.localeCompare(b.name));
       setNearby(sorted);
       setBusinesses(listedItems.filter((item) => item.isVerified));
@@ -251,7 +261,12 @@ export default function BusinessDirectory({ place, sessionUser, authConfigured, 
           </div>
         </div>
         {selected.address && <p className="business-detail-address"><MapPin size={14} /> {selected.address}</p>}
-        {selected.website && <a className="business-proof-link" href={selected.website} target="_blank" rel="noreferrer noopener">Official website <ExternalLink size={13} /></a>}
+        {selected.description && <p className="business-public-description">{selected.description}</p>}
+        <div className="business-contact-details">
+          {selected.openingHours && <p><Clock3 size={13} /><span><strong>Hours</strong>{selected.openingHours}</span></p>}
+          {selected.phone && <p><MessageCircle size={13} /><span><strong>Phone</strong><a href={`tel:${selected.phone.replace(/[^+\\d]/g, "")}`}>{selected.phone}</a></span></p>}
+          {selected.website && <p><ExternalLink size={13} /><span><strong>Website</strong><a href={selected.website} target="_blank" rel="noreferrer noopener">Open official website</a></span></p>}
+        </div>
         {selected.isVerified ? (
           <>
             <div className="business-rating-summary">{reviewCount ? <><Stars rating={averageRating} /><strong>{averageRating.toFixed(1)}</strong><span>{reviewCount} {reviewCount === 1 ? "review" : "reviews"}</span></> : <span>No reviews yet</span>}</div>
@@ -381,6 +396,7 @@ export default function BusinessDirectory({ place, sessionUser, authConfigured, 
               <span className="business-directory-icon"><Building2 size={18}/></span>
               <button type="button" className="business-listing-main" onClick={()=>{setSelectedId(business.businessId);setSection("overview");setFormError("");setNotice("");}}>
                 <strong>{business.name}</strong><small>{business.category}</small>{business.address&&<small className="business-address-line">{business.address}</small>}
+                {business.openingHours && <small className="business-hours-line">Hours: {business.openingHours}</small>}
                 {business.isVerified ? <span className="business-verified-badge"><BadgeCheck size={12}/> Verified by THE WORLD</span> : business.status==="pending" ? <span className="business-pending-badge"><Clock3 size={11}/> Verification pending</span> : <span className="business-unverified-badge">Map listing · not yet verified</span>}
               </button>
               {business.isVerified && business.businessId ? <button className="business-open-button" type="button" onClick={()=>{setSelectedId(business.businessId);setSection("overview");setFormError("");setNotice("");}}>Open <ExternalLink size={13}/></button>
