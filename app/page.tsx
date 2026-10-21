@@ -627,6 +627,133 @@ export default function HomePage() {
     }
   }
 
+  async function saveEditedPost(event: FormEvent<HTMLFormElement>, post: CommunityPost) {
+    event.preventDefault();
+    const body = editingPostBody.trim();
+    if (body.length < 2 || body.length > 500 || !sessionUser) return;
+    setPostBusy(true);
+    setPostError("");
+    try {
+      const response = await fetch("/api/posts/" + encodeURIComponent(post.id), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "We couldn't save this edit.");
+      const editedAt = typeof payload.editedAt === "string" ? payload.editedAt : new Date().toISOString();
+      setCommunityPosts((current) => current.map((item) => item.id === post.id ? { ...item, body, editedAt } : item));
+      setPinnedConversation((current) => current?.id === post.id ? { ...current, body, editedAt } : current);
+      setEditingPostId(null);
+      setEditingPostBody("");
+      showNotice("Your post was updated.");
+    } catch (error) {
+      setPostError(error instanceof Error ? error.message : "We couldn't save this edit.");
+    } finally {
+      setPostBusy(false);
+    }
+  }
+
+  async function deletePost(post: CommunityPost) {
+    if (!sessionUser || !window.confirm("Delete this post? This removes it from the public conversation feed.")) return;
+    setPostBusy(true);
+    setPostError("");
+    try {
+      const response = await fetch("/api/posts/" + encodeURIComponent(post.id), { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "We couldn't delete this post.");
+      setCommunityPosts((current) => current.filter((item) => item.id !== post.id));
+      setCommunityTotalCount((count) => Math.max(0, count - 1));
+      if (pinnedConversation?.id === post.id) setPinnedConversation(null);
+      if (replyThreadPostId === post.id) setReplyThreadPostId(null);
+      showNotice("Post deleted.");
+    } catch (error) {
+      setPostError(error instanceof Error ? error.message : "We couldn't delete this post.");
+    } finally {
+      setPostBusy(false);
+    }
+  }
+
+  async function sharePost(post: CommunityPost) {
+    const url = new URL(window.location.origin + "/");
+    url.searchParams.set("place", post.placeKey);
+    url.searchParams.set("post", post.id);
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: post.placeName + " conversation on THE WORLD", text: post.body, url: url.toString() });
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url.toString());
+        showNotice("Conversation link copied.");
+      } else {
+        window.prompt("Copy this conversation link", url.toString());
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name !== "AbortError") showNotice("Couldn't share this conversation. Try copying its link.");
+    }
+  }
+
+  async function saveEditedReply(event: FormEvent<HTMLFormElement>, post: CommunityPost, reply: CommunityReply) {
+    event.preventDefault();
+    const body = editingReplyBody.trim();
+    if (body.length < 2 || body.length > 300) return;
+    setReplyBusyPostId(post.id);
+    setReplyError("");
+    try {
+      const response = await fetch("/api/posts/" + encodeURIComponent(post.id) + "/replies/" + encodeURIComponent(reply.id), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "We couldn't save this reply.");
+      setRepliesByPost((current) => ({
+        ...current,
+        [post.id]: (current[post.id] || []).map((item) => item.id === reply.id
+          ? { ...item, body, editedAt: typeof payload.editedAt === "string" ? payload.editedAt : new Date().toISOString() }
+          : item),
+      }));
+      setEditingReplyId(null);
+      setEditingReplyBody("");
+      showNotice("Reply updated.");
+    } catch (error) {
+      setReplyError(error instanceof Error ? error.message : "We couldn't save this reply.");
+    } finally { setReplyBusyPostId(null); }
+  }
+
+  async function deleteReply(post: CommunityPost, reply: CommunityReply) {
+    if (!window.confirm("Delete your reply?")) return;
+    setReplyBusyPostId(post.id);
+    setReplyError("");
+    try {
+      const response = await fetch("/api/posts/" + encodeURIComponent(post.id) + "/replies/" + encodeURIComponent(reply.id), { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof payload.error === "string" ? payload.error : "We couldn't delete this reply.");
+      setRepliesByPost((current) => ({ ...current, [post.id]: (current[post.id] || []).filter((item) => item.id !== reply.id) }));
+      setCommunityPosts((current) => current.map((item) => item.id === post.id ? { ...item, replyCount: Math.max(0, (item.replyCount || 0) - 1) } : item));
+      showNotice("Reply deleted.");
+    } catch (error) { setReplyError(error instanceof Error ? error.message : "We couldn't delete this reply."); }
+    finally { setReplyBusyPostId(null); }
+  }
+
+  async function exploreBroaderArea() {
+    if (!selectedPlace) return;
+    const parts = selectedPlace.displayName.split(",").map((part) => part.trim()).filter(Boolean);
+    if (parts.length < 3) return;
+    const query = parts.slice(1, Math.min(parts.length, 3)).join(", ");
+    try {
+      const results = await searchPlaces(query);
+      const candidate = results.find((result) => {
+        const title = getPlaceTitle(result).toLocaleLowerCase();
+        return title !== selectedPlace.name.toLocaleLowerCase() && parts.slice(1, 3).some((part) => title === part.toLocaleLowerCase());
+      }) ?? results[0];
+      if (candidate && selectedPlace.id !== candidate.osm_type + "-" + candidate.osm_id) {
+        chooseSearchResult(candidate);
+      } else showNotice("We couldn't identify a broader mapped community for this place yet.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "The broader place couldn't be opened.");
+    }
+  }
+
   async function handleNotificationRead(notification: WorldNotification) {
     if (!notification.readAt) {
       try {
