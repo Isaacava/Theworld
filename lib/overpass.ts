@@ -4,6 +4,7 @@ type OverpassPayload<T> = { elements: T[] };
 
 const ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
   "https://overpass.private.coffee/api/interpreter",
 ] as const;
 
