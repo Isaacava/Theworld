@@ -48,54 +48,46 @@ function validPostId(value: string): boolean {
   return /^[a-f\d]{24}$/i.test(value);
 }
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
   const { postId } = await context.params;
   if (!validPostId(postId)) {
     return NextResponse.json({ replies: [], error: "That conversation identifier is invalid." }, { status: 400 });
   }
   if (!isMongoConfigured()) {
-    return NextResponse.json(
-      { replies: [], message: "Community storage is not connected yet." },
-      { status: 503 },
-    );
+    return NextResponse.json({ replies: [], hasMore: false, nextCursor: null, message: "Community storage is not connected yet." }, { status: 503 });
+  }
+  const before = new URL(request.url).searchParams.get("before") || "";
+  if (before && !/^[a-f\d]{24}$/i.test(before)) {
+    return NextResponse.json({ replies: [], error: "That reply cursor is invalid." }, { status: 400 });
   }
 
   try {
     const db = await getDatabase();
     const parentId = new ObjectId(postId);
-    const parent = await db.collection("posts").findOne({
-      _id: parentId,
-      status: "visible",
-    });
-    if (!parent) {
-      return NextResponse.json({ replies: [], error: "That conversation is no longer available." }, { status: 404 });
-    }
+    const parent = await db.collection("posts").findOne({ _id: parentId, status: "visible" });
+    if (!parent) return NextResponse.json({ replies: [], error: "That conversation is no longer available." }, { status: 404 });
 
-    const replies = await db.collection("replies")
-      .find({ postId: parentId, status: "visible" })
-      .sort({ createdAt: 1 })
-      .limit(100)
+    const filter: Record<string, unknown> = { postId: parentId, status: "visible" };
+    if (before) filter._id = { $lt: new ObjectId(before) };
+    const found = await db.collection("replies")
+      .find(filter)
+      .sort({ _id: -1 })
+      .limit(51)
       .project({
-        postId: 1,
-        body: 1,
-        placeKey: 1,
-        placeName: 1,
-        authorUsername: 1,
-        authorDisplayName: 1,
-        createdAt: 1,
-        presenceVerifiedAt: 1,
-        editedAt: 1,
+        postId: 1, body: 1, placeKey: 1, placeName: 1, authorUsername: 1,
+        authorDisplayName: 1, createdAt: 1, presenceVerifiedAt: 1, editedAt: 1,
       })
       .toArray();
-
+    const hasMore = found.length > 50;
+    const pageRecords = found.slice(0, 50);
+    pageRecords.reverse();
     return NextResponse.json({
-      replies: replies.map((reply) => publicReply(reply as unknown as Record<string, unknown>)),
+      replies: pageRecords.map((reply) => publicReply(reply as unknown as Record<string, unknown>)),
+      hasMore,
+      nextCursor: hasMore && pageRecords.length ? String(pageRecords[0]._id) : null,
     }, { headers: { "Cache-Control": "no-store" } });
   } catch {
-    return NextResponse.json(
-      { replies: [], error: "Replies are temporarily unavailable. Please try again." },
-      { status: 503 },
-    );
+    return NextResponse.json({ replies: [], hasMore: false, nextCursor: null, error: "Replies are temporarily unavailable. Please try again." }, { status: 503 });
   }
 }
 

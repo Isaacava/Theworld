@@ -13,7 +13,7 @@ type User = { id: string; username: string; displayName: string } | null;
 type BusinessItem = {
   id: string; osmPlaceKey: string; name: string; category: string; address: string;
   coordinates: [number, number]; status: "nearby" | "pending" | "verified"; isVerified: boolean;
-  businessId: string | null; isOwner?: boolean; isListed?: boolean;
+  businessId: string | null; isOwner?: boolean; isListed?: boolean; website?: string;
 };
 type Review = { id: string; rating: number; body: string; author: { username: string; displayName: string }; createdAt: string; verificationStatus: "verified" | "unverified"; bookingId: string | null };
 type Question = { id: string; body: string; author: { username: string; displayName: string }; createdAt: string; answer: string | null; answeredAt: string | null };
@@ -251,6 +251,7 @@ export default function BusinessDirectory({ place, sessionUser, authConfigured, 
           </div>
         </div>
         {selected.address && <p className="business-detail-address"><MapPin size={14} /> {selected.address}</p>}
+        {selected.website && <a className="business-proof-link" href={selected.website} target="_blank" rel="noreferrer noopener">Official website <ExternalLink size={13} /></a>}
         {selected.isVerified ? (
           <>
             <div className="business-rating-summary">{reviewCount ? <><Stars rating={averageRating} /><strong>{averageRating.toFixed(1)}</strong><span>{reviewCount} {reviewCount === 1 ? "review" : "reviews"}</span></> : <span>No reviews yet</span>}</div>
@@ -275,13 +276,13 @@ export default function BusinessDirectory({ place, sessionUser, authConfigured, 
             )}
             {section === "reviews" && (
               <div className="business-subsection">
-                <form className="business-form" onSubmit={submitReview}>
+                {!selected.isOwner ? <form className="business-form" onSubmit={submitReview}>
                   <h4>Share your experience</h4>
                   <label>Rating<select value={rating} onChange={(e) => setRating(Number(e.target.value))}><option value={5}>5 · Excellent</option><option value={4}>4 · Good</option><option value={3}>3 · Average</option><option value={2}>2 · Poor</option><option value={1}>1 · Very poor</option></select></label>
                   <label>Your review<textarea rows={3} value={reviewBody} onChange={(e) => setReviewBody(e.target.value.slice(0,1000))} maxLength={1000} minLength={5} placeholder="Describe what you experienced…" required /></label>
                   <div className="business-form-bottom"><span>{reviewBody.length}/1000 · Be honest and specific.</span><button type="submit" disabled={busy==="review" || reviewBody.trim().length<5}>{busy==="review" ? "Posting…" : "Post review"}</button></div>
-                </form>
-                {reviews.length === 0 ? <div className="business-empty-state"><Star size={19} /><strong>No public reviews yet</strong><p>Be the first to share a helpful, honest experience.</p></div> : reviews.map((review) => (
+                </form> : <div className="business-empty-state"><ShieldCheck size={18}/><strong>You manage this business</strong><p>Owners cannot review their own listing.</p></div>}
+                {!selected.isOwner && (reviews.length === 0 ? <div className="business-empty-state"><Star size={19} /><strong>No public reviews yet</strong><p>Be the first to share a helpful, honest experience.</p></div> : reviews.map((review) => (
                   <article className="business-review" key={review.id}>
                     <div className="business-review-top"><span className="business-review-avatar">{review.author.displayName.slice(0,1).toUpperCase()}</span><div><strong>{review.author.displayName}</strong><small>@{review.author.username} · {timeLabel(review.createdAt)}</small></div><Stars rating={review.rating} /></div>
                     <div className="business-review-badges">{review.verificationStatus === "verified" ? <span className="business-verified-badge"><BadgeCheck size={12} /> Completed booking verified</span> : <span className="business-unverified-badge">Experience not booking-verified</span>}</div>
@@ -295,6 +296,7 @@ export default function BusinessDirectory({ place, sessionUser, authConfigured, 
                     ) : <button className="business-text-button" type="button" onClick={() => setDisputeTarget(review.id)}>Dispute review</button>)}
                   </article>
                 ))}
+                )}
               </div>
             )}
             {section === "questions" && (
@@ -314,14 +316,28 @@ export default function BusinessDirectory({ place, sessionUser, authConfigured, 
             {section === "booking" && (
               <div className="business-subsection">
                 <div className="business-trust-note"><Clock3 size={14}/><span>This sends a request, not a confirmed booking. Wait for the business to accept it.</span></div>
-                <form className="business-form" onSubmit={requestBooking}>
-                  <h4>Request a booking</h4><label>Preferred date and time<input type="datetime-local" value={bookingDate} min={new Date(Date.now()+5*60_000).toISOString().slice(0,16)} onChange={(e)=>setBookingDate(e.target.value)} required/></label>
-                  <label>What do you need?<textarea rows={3} value={bookingMessage} onChange={(e)=>setBookingMessage(e.target.value.slice(0,500))} maxLength={500} placeholder="Share party size, service or other details…" required/></label>
-                  <div className="business-form-bottom"><span>{bookingMessage.length}/500</span><button type="submit" disabled={busy==="booking" || !bookingDate || bookingMessage.trim().length<2}>{busy==="booking"?"Sending…":"Send request"}</button></div>
-                </form>
-                {bookings.filter((booking)=>!booking.customer).length>0 && <div className="business-booking-list"><h4>Customer requests</h4>{bookings.filter((booking)=>!booking.customer).map((booking)=>(
-                  <article key={booking.id} className="business-booking-card"><strong>{booking.requestedFor ? new Date(booking.requestedFor).toLocaleString() : "Requested booking"}</strong><p>{booking.message}</p><span className={`business-booking-status status-${booking.status}`}>{booking.status}</span>{booking.status==="requested"&&<div><button type="button" onClick={()=>void updateBooking(booking,"accepted")} disabled={Boolean(busy)}>Accept</button><button type="button" onClick={()=>void updateBooking(booking,"declined")} disabled={Boolean(busy)}>Decline</button></div>}{booking.status==="accepted"&&<button type="button" onClick={()=>void updateBooking(booking,"completed")} disabled={Boolean(busy)}>Mark completed</button>}</article>
-                ))}</div>}
+                {!selected.isOwner && (
+                  <form className="business-form" onSubmit={requestBooking}>
+                    <h4>Request a booking</h4>
+                    <label>Preferred date and time<input type="datetime-local" value={bookingDate} min={new Date(Date.now()+5*60_000).toISOString().slice(0,16)} onChange={(e)=>setBookingDate(e.target.value)} required/></label>
+                    <label>What do you need?<textarea rows={3} value={bookingMessage} onChange={(e)=>setBookingMessage(e.target.value.slice(0,500))} maxLength={500} placeholder="Share party size, service or other details…" required/></label>
+                    <div className="business-form-bottom"><span>{bookingMessage.length}/500</span><button type="submit" disabled={busy==="booking" || !bookingDate || bookingMessage.trim().length<2}>{busy==="booking"?"Sending…":"Send request"}</button></div>
+                  </form>
+                )}
+                {selected.isOwner ? (
+                  <div className="business-empty-state"><CalendarClock size={18}/><strong>Manage booking requests</strong><p>Open the Requests tab to accept, decline or complete customer requests.</p><button type="button" className="secondary-action" onClick={() => setSection("requests")}>View requests</button></div>
+                ) : bookings.length === 0 ? (
+                  <div className="business-empty-state"><CalendarClock size={18}/><strong>No booking requests yet</strong><p>Requests you send to this business will appear here with their current status.</p></div>
+                ) : (
+                  <div className="business-booking-list"><h4>Your requests</h4>{bookings.map((booking)=>(
+                    <article key={booking.id} className="business-booking-card">
+                      <strong>{booking.requestedFor ? new Date(booking.requestedFor).toLocaleString() : "Requested booking"}</strong>
+                      <p>{booking.message}</p>
+                      <span className={`business-booking-status status-${booking.status}`}>{booking.status}</span>
+                      {booking.status === "completed" && <small>A completed booking can be linked to your review.</small>}
+                    </article>
+                  ))}</div>
+                )}
               </div>
             )}
             {section === "requests" && (
@@ -337,7 +353,7 @@ export default function BusinessDirectory({ place, sessionUser, authConfigured, 
             )}
           </>
         ) : (
-          <div className="business-verification-info"><ShieldCheck size={18}/><div><strong>This business is not yet verified</strong><p>It can be found on the map, but reviews, business Q&amp;A and booking requests stay disabled until THE WORLD verifies the listing.</p><p>Only list a business you own or are authorised to represent.</p><button type="button" className="primary-action" onClick={() => { if (!sessionUser) { onSignIn(); return; } setClaimTarget(selected); setFormError(""); }}>Request verification</button></div></div>
+          <div className="business-verification-info"><ShieldCheck size={18}/><div><strong>{selected.status === "pending" ? "Listing awaiting verification" : "This business is not yet verified"}</strong><p>{selected.status === "pending" ? "A listing request is already being reviewed. Reviews, business Q&amp;A and booking requests remain disabled until a moderator approves it." : "It can be found on the map, but reviews, business Q&amp;A and booking requests stay disabled until THE WORLD verifies the listing."}</p><p>Only list a business you own or are authorised to represent.</p>{selected.status !== "pending" && <button type="button" className="primary-action" onClick={() => { if (!sessionUser) { onSignIn(); return; } setClaimTarget(selected); setFormError(""); }}>Request verification</button>}</div></div>
         )}
         {claimTarget?.osmPlaceKey === selected.osmPlaceKey && (
           <form className="business-form business-claim-form" onSubmit={(event)=>void requestListing(event)}>

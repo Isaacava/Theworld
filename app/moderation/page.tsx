@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Check, CircleAlert, Eye, EyeOff, Flag, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { Building2, ArrowLeft, Check, CircleAlert, Eye, EyeOff, Flag, RefreshCw, ShieldCheck, X } from "lucide-react";
 
 type ReportStatus = "open" | "reviewed" | "dismissed" | "all";
 type ModerationReport = {
@@ -128,7 +128,10 @@ export default function ModerationPage() {
           <span className="profile-page-brand-mark">W</span>
           <span><strong>THE WORLD</strong><small>Moderation workspace</small></span>
         </Link>
-        <Link className="profile-back-link" href="/"><ArrowLeft size={15} /> Back to explore</Link>
+        <div className="moderation-page-actions">
+          <Link className="outline-button" href="/moderation/businesses"><Building2 size={14} /> Business verification</Link>
+          <Link className="profile-back-link" href="/"><ArrowLeft size={15} /> Back to explore</Link>
+        </div>
       </nav>
 
       <div className="moderation-content">

@@ -26,6 +26,7 @@ type NearbyBusiness = {
   source: "OpenStreetMap";
   isVerified: boolean;
   businessId: string | null;
+  isOwner?: boolean;
   status: "nearby" | "pending" | "verified";
 };
 
@@ -157,6 +158,7 @@ export async function GET(request: Request) {
         ...candidate,
         isVerified: Boolean(listing?.status === "verified" && listing?.verificationStatus === "verified"),
         businessId: listing && listing.status === "verified" && listing.verificationStatus === "verified" ? String(listing._id) : null,
+        isOwner: Boolean(user && listing?.ownerId instanceof ObjectId && listing.ownerId.equals(new ObjectId(user.id))),
         status: listing?.status === "verified" && listing?.verificationStatus === "verified" ? "verified" : listing?.status === "pending" ? "pending" : "nearby",
       };
     });
@@ -176,6 +178,7 @@ export async function GET(request: Request) {
         source: "OpenStreetMap",
         isVerified: true,
         businessId: String(doc._id),
+        isOwner: Boolean(user && doc.ownerId instanceof ObjectId && doc.ownerId.equals(new ObjectId(user.id))),
         status: "verified",
       });
     }
