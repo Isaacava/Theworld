@@ -111,7 +111,7 @@ async function loadNearbyCommunities(
   ]);
   const radiusMeters = isCityLike ? 12000 : 3500;
   if (freshCache && Array.isArray(freshCache.communities)) {
-    return { communities: freshCache.communities, radiusMeters: freshCache.radiusMeters || radiusMeters, cached: true, stale: false };
+    return { communities: freshCache.communities, radiusMeters: freshCache.radiusMeters || radiusMeters, cached: true, stale: false, sourceUnavailable: false };
   }
 
   const rates = db.collection<{ _id: string; nextAllowedAt: number }>("geocoderRateLimits");
@@ -122,7 +122,12 @@ async function loadNearbyCommunities(
     { upsert: true, returnDocument: "before" },
   );
   const delay = Math.max(0, (previous?.nextAllowedAt ?? current) - current);
-  if (delay > 2500) throw new Error("Nearby map discovery is busy. Try again shortly.");
+  if (delay > 2500) {
+    if (staleCache && Array.isArray(staleCache.communities)) {
+      return { communities: staleCache.communities, radiusMeters: staleCache.radiusMeters || radiusMeters, cached: true, stale: true, sourceUnavailable: true };
+    }
+    return { communities: [], radiusMeters, cached: false, stale: false, sourceUnavailable: true };
+  }
   if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
 
   const lat = center[1];
@@ -171,12 +176,14 @@ async function loadNearbyCommunities(
       { $set: { cacheKey: placeKey, communities: candidates, radiusMeters, fetchedAt: now, expiresAt: new Date(now.getTime() + 6 * 60 * 60 * 1000) } },
       { upsert: true },
     );
-    return { communities: candidates, radiusMeters, cached: false, stale: false };
+    return { communities: candidates, radiusMeters, cached: false, stale: false, sourceUnavailable: false };
   } catch (error) {
     if (staleCache && Array.isArray(staleCache.communities)) {
-      return { communities: staleCache.communities, radiusMeters: staleCache.radiusMeters || radiusMeters, cached: true, stale: true };
+      return { communities: staleCache.communities, radiusMeters: staleCache.radiusMeters || radiusMeters, cached: true, stale: true, sourceUnavailable: true };
     }
-    throw error;
+    // The public map service can be temporarily busy. Continue with any real
+    // communities already known to THE WORLD instead of failing the entire tab.
+    return { communities: [], radiusMeters, cached: false, stale: false, sourceUnavailable: true };
   } finally {
     clearTimeout(timeout);
   }
@@ -302,6 +309,7 @@ export async function GET(request: Request) {
       radiusMeters: loaded.radiusMeters,
       cached: loaded.cached,
       stale: loaded.stale,
+      sourceUnavailable: loaded.sourceUnavailable,
       source: "OpenStreetMap",
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

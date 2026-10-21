@@ -3745,3 +3745,7 @@ button:disabled { cursor: not-allowed; }
 .community-search-bar input { width: 100%; min-width: 0; min-height: 39px; padding: 8px 0; color: var(--text); border: 0; outline: 0; background: transparent; font: inherit; font-size: 12px; }
 .community-search-bar input::placeholder { color: var(--quiet); }
 .community-search-bar > button { display: grid; width: 27px; height: 27px; flex: 0 0 auto; place-items: center; color: var(--muted); border: 0; border-radius: 6px; background: var(--surface-soft); cursor: pointer; }
+
+
+.nearby-communities-source-note { display: flex; align-items: flex-start; gap: 7px; margin: 8px 0 12px; padding: 9px 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); font-size: 10px; line-height: 1.5; }
+.nearby-communities-source-note svg { flex: 0 0 auto; margin-top: 1px; color: var(--primary); }

@@ -58,6 +58,7 @@ export default function NearbyCommunities({ place, onSelect, onOpenConversation 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [stale, setStale] = useState(false);
+  const [sourceUnavailable, setSourceUnavailable] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,10 +70,12 @@ export default function NearbyCommunities({ place, onSelect, onOpenConversation 
       setItems(Array.isArray(payload.communities) ? payload.communities as NearbyPlace[] : []);
       setActivity(Array.isArray(payload.activity) ? payload.activity as NearbyActivity[] : []);
       setStale(payload.stale === true);
+      setSourceUnavailable(payload.sourceUnavailable === true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Nearby places could not be loaded.");
       setItems([]);
       setActivity([]);
+      setSourceUnavailable(false);
     } finally {
       setLoading(false);
     }
@@ -99,6 +102,13 @@ export default function NearbyCommunities({ place, onSelect, onOpenConversation 
         <span>These are nearby mapped places, not a claim that each one sits inside an official city boundary.</span>
       </div>
 
+
+      {sourceUnavailable && !loading && (
+        <div className="nearby-communities-source-note" role="status">
+          <MapPin size={14} />
+          <span>The public map service is temporarily unavailable. Existing THE WORLD communities are still shown when available.</span>
+        </div>
+      )}
       {error && (
         <div className="nearby-communities-error" role="alert">
           <span>{error}</span>
@@ -110,8 +120,8 @@ export default function NearbyCommunities({ place, onSelect, onOpenConversation 
       ) : !error && items.length === 0 ? (
         <div className="nearby-communities-empty">
           <MapPin size={20} />
-          <strong>No nearby named communities found</strong>
-          <p>Try searching for a specific street, suburb, or neighbourhood.</p>
+          <strong>{sourceUnavailable ? "Nearby map data is temporarily unavailable" : "No nearby named communities found"}</strong>
+          <p>{sourceUnavailable ? "Try refreshing shortly, or search directly for a street or neighbourhood above." : "Try searching for a specific street, suburb, or neighbourhood."}</p>
         </div>
       ) : (
         <div className="nearby-communities-list">
