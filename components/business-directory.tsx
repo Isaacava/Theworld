@@ -282,7 +282,7 @@ export default function BusinessDirectory({ place, sessionUser, authConfigured, 
                   <label>Your review<textarea rows={3} value={reviewBody} onChange={(e) => setReviewBody(e.target.value.slice(0,1000))} maxLength={1000} minLength={5} placeholder="Describe what you experienced…" required /></label>
                   <div className="business-form-bottom"><span>{reviewBody.length}/1000 · Be honest and specific.</span><button type="submit" disabled={busy==="review" || reviewBody.trim().length<5}>{busy==="review" ? "Posting…" : "Post review"}</button></div>
                 </form> : <div className="business-empty-state"><ShieldCheck size={18}/><strong>You manage this business</strong><p>Owners cannot review their own listing.</p></div>}
-                {!selected.isOwner && (reviews.length === 0 ? <div className="business-empty-state"><Star size={19} /><strong>No public reviews yet</strong><p>Be the first to share a helpful, honest experience.</p></div> : reviews.map((review) => (
+                {reviews.length === 0 ? <div className="business-empty-state"><Star size={19} /><strong>No public reviews yet</strong><p>Be the first to share a helpful, honest experience.</p></div> : reviews.map((review) => (
                   <article className="business-review" key={review.id}>
                     <div className="business-review-top"><span className="business-review-avatar">{review.author.displayName.slice(0,1).toUpperCase()}</span><div><strong>{review.author.displayName}</strong><small>@{review.author.username} · {timeLabel(review.createdAt)}</small></div><Stars rating={review.rating} /></div>
                     <div className="business-review-badges">{review.verificationStatus === "verified" ? <span className="business-verified-badge"><BadgeCheck size={12} /> Completed booking verified</span> : <span className="business-unverified-badge">Experience not booking-verified</span>}</div>
@@ -295,7 +295,7 @@ export default function BusinessDirectory({ place, sessionUser, authConfigured, 
                       </form>
                     ) : <button className="business-text-button" type="button" onClick={() => setDisputeTarget(review.id)}>Dispute review</button>)}
                   </article>
-                )))}
+                ))}
               </div>
             )}
             {section === "questions" && (
