@@ -18,6 +18,8 @@ import {
   LogIn,
   LogOut,
   MapPin,
+  Maximize2,
+  Minimize2,
   Menu,
   MessageCircle,
   Minus,
@@ -205,6 +207,8 @@ export default function HomePage() {
   const [mapProvider, setMapProvider] = useState<"globe" | "google-3d">("globe");
   const [notice, setNotice] = useState("");
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  const [mobilePanelExpanded, setMobilePanelExpanded] = useState(false);
+  const placePanelRef = useRef<HTMLElement | null>(null);
   const [savedViewOpen, setSavedViewOpen] = useState(false);
 
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
@@ -945,6 +949,7 @@ export default function HomePage() {
       setActiveNav("explore");
       setSavedViewOpen(false);
       setMobilePanelOpen(true);
+      setMobilePanelExpanded(false);
       setSearchOpen(false);
       mapRef.current?.flyTo(place.coordinates, place.zoom);
       mapRef.current?.setMarker(place.coordinates);
@@ -1230,7 +1235,7 @@ export default function HomePage() {
   );
 
   return (
-    <main className="world-shell">
+    <main className={["world-shell", selectedPlace && mobilePanelExpanded ? "community-fullscreen-open" : ""].filter(Boolean).join(" ")}>
       <div className="map-background" aria-hidden="true">
         {mapProvider === "google-3d" ? (
           <Google3DMap
@@ -1493,11 +1498,14 @@ export default function HomePage() {
       </aside>
 
       <section
+        ref={placePanelRef}
+        id="selected-place-panel"
         className={[
           "right-panel",
           "glass-panel",
           selectedPlace || savedViewOpen || mobilePanelOpen ? "right-panel-open" : "",
           mobilePanelOpen ? "mobile-panel-open" : "",
+          selectedPlace && mobilePanelExpanded ? "mobile-panel-fullscreen" : "",
         ].filter(Boolean).join(" ")}
         aria-label="Selected place details"
       >
@@ -1547,9 +1555,39 @@ export default function HomePage() {
                 <span className="eyebrow">PLACE DETAILS</span>
                 <div className="place-type-line">{selectedPlace.kind}</div>
               </div>
-              <button type="button" className="icon-button" onClick={() => { setSelectedPlace(null); setMobilePanelOpen(false); }} aria-label="Close place details">
-                <X size={17} />
-              </button>
+              <div className="place-panel-header-actions">
+                <button
+                  type="button"
+                  className="place-view-toggle"
+                  onClick={() => {
+                    if (mobilePanelExpanded) {
+                      placePanelRef.current?.scrollTo({ top: 0, behavior: "auto" });
+                      setMobilePanelExpanded(false);
+                    } else {
+                      setMobilePanelExpanded(true);
+                    }
+                  }}
+                  aria-expanded={mobilePanelExpanded}
+                  aria-controls="selected-place-panel"
+                  aria-label={mobilePanelExpanded ? "Minimize community and show map" : "Expand community full screen"}
+                  title={mobilePanelExpanded ? "Show map" : "Open full-screen community"}
+                >
+                  {mobilePanelExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                  <span>{mobilePanelExpanded ? "Show map" : "Full view"}</span>
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => {
+                    setSelectedPlace(null);
+                    setMobilePanelOpen(false);
+                    setMobilePanelExpanded(false);
+                  }}
+                  aria-label="Close place details"
+                >
+                  <X size={17} />
+                </button>
+              </div>
             </div>
 
             <h2 className="selected-place-title">{selectedPlace.name}</h2>
