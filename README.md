@@ -311,7 +311,7 @@ The application creates required indexes when the database is first used. If log
 - Register and sign in use an opaque, server-side session in an HttpOnly cookie; passwords are hashed with Node's scrypt function.
 - Posting requires a browser location reading and a server-side lookup of the selected OpenStreetMap feature. Presence distance is checked against canonical server-fetched OSM point/line/polygon geometry, not the coordinates sent by the browser.
 - Raw browser coordinates are not stored in community posts or published to other users. The post stores a verification timestamp and method, not the user's location.
-- This is still a prototype safeguard, **not production-grade proof of physical presence**. Browser GPS can be spoofed, and the public Nominatim service is not a production geocoder. Email verification, robust login/register rate-limiting, a moderation queue, and stronger anti-abuse controls are not implemented yet. Keep this test deployment access-controlled until those controls are completed.
+- This is still a prototype safeguard, **not production-grade proof of physical presence**. Browser GPS can be spoofed, and the public Nominatim service is not a production geocoder. Email verification, robust login/register rate-limiting, account recovery, and content-removal tools remain unfinished. Reports for posts and replies are private, limited per account, and protected against duplicate submissions. Moderators can review or dismiss reports at `/moderation` when their user document has `role: "admin"`; changing a report status does not automatically hide content. Keep this test deployment access-controlled while broader anti-abuse controls are completed.
 
 ### Automated checks
 
@@ -367,12 +367,12 @@ The first prototype should not require paid advertisements, payments, ticketing,
 
 ### Phase 2 — Social MVP
 
-- [ ] Account authentication and profiles.
-- [x] Initial MongoDB data model and persistent local posts (replies remain planned).
-- [ ] Public browsing of community content.
+- [x] Account authentication, editable bios, and public explorer profiles (profile photos and account recovery remain planned).
+- [x] MongoDB persistence for local posts, replies, likes, bookmarks, notifications, and public profile summaries.
+- [x] Public browsing of community posts and public explorer profiles.
 - [x] Initial location-presence check for LIVE HERE posting (prototype-grade, with server-fetched OSM geometry; production anti-spoofing remains planned).
-- [ ] Text posts, replies, and basic polls.
-- [ ] Reporting, blocking, and basic moderation controls.
+- [x] Text posts, replies, likes, and bookmarks; basic polls remain planned.
+- [x] Post/reply reporting and a role-protected moderation review queue; blocking and content removal remain planned.
 
 ### Phase 3 — Retention and useful discovery
 

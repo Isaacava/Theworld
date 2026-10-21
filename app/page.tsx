@@ -12,6 +12,7 @@ import {
   Compass,
   Globe,
   Heart,
+  Flag,
   Layers,
   LocateFixed,
   LogIn,
@@ -117,6 +118,9 @@ type WorldNotification = {
   readAt: string | null;
 };
 
+type ReportTarget = { targetType: "post" | "reply"; targetId: string; authorUsername: string; body: string; placeName: string };
+type ReportReason = "spam" | "harassment" | "misinformation" | "unsafe" | "privacy" | "other";
+
 type CommunityReply = {
   id: string;
   postId: string;
@@ -213,6 +217,12 @@ export default function HomePage() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationsBusy, setNotificationsBusy] = useState(false);
   const [notificationsError, setNotificationsError] = useState("");
+
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
+  const [reportReason, setReportReason] = useState<ReportReason>("spam");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState("");
 
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
   const [communityLoading, setCommunityLoading] = useState(false);
@@ -540,6 +550,56 @@ export default function HomePage() {
       setNotificationsError("");
     } catch {
       setNotificationsError("Couldn't mark notifications as read. Please try again.");
+    }
+  }
+
+  function openReport(target: ReportTarget) {
+    if (!sessionUser) {
+      setAuthMode("login");
+      setAuthModalOpen(true);
+      showNotice("Sign in to report content to the community team.");
+      return;
+    }
+    if (target.authorUsername === sessionUser.username) {
+      showNotice("You can't report your own content.");
+      return;
+    }
+    setReportTarget(target);
+    setReportReason("spam");
+    setReportDetails("");
+    setReportError("");
+  }
+
+  async function handleReportSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const target = reportTarget;
+    if (!target || reportBusy) return;
+    setReportBusy(true);
+    setReportError("");
+    try {
+      const response = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetType: target.targetType,
+          targetId: target.targetId,
+          reason: reportReason,
+          details: reportDetails,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setReportError(typeof payload.error === "string" ? payload.error : "We couldn't send this report. Please try again.");
+        return;
+      }
+      setReportTarget(null);
+      setReportDetails("");
+      setReportError("");
+      showNotice(typeof payload.message === "string" ? payload.message : "Thank you for helping keep THE WORLD useful.");
+    } catch {
+      setReportError("The reporting service couldn't be reached. Please try again.");
+    } finally {
+      setReportBusy(false);
     }
   }
 
@@ -1456,6 +1516,24 @@ export default function HomePage() {
                         <span>{post.likesCount || 0}</span>
                         <span>{post.likesCount === 1 ? "like" : "likes"}</span>
                       </button>
+                      {post.author.username !== sessionUser?.username && (
+                        <button
+                          type="button"
+                          className="post-report-trigger"
+                          onClick={() => openReport({
+                            targetType: "post",
+                            targetId: post.id,
+                            authorUsername: post.author.username,
+                            body: post.body,
+                            placeName: post.placeName || selectedPlace?.name || "this place",
+                          })}
+                          aria-label={`Report post by @${post.author.username}`}
+                          title="Report post"
+                        >
+                          <Flag size={14} />
+                          <span>Report</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         className={post.isBookmarked ? "post-reaction-button is-active" : "post-reaction-button"}
@@ -1511,6 +1589,23 @@ export default function HomePage() {
                                         <span className="reply-presence"><ShieldCheck size={11} /> Local presence checked when posted</span>
                                       )}
                                     </div>
+                                    {reply.author.username !== sessionUser?.username && (
+                                      <button
+                                        type="button"
+                                        className="reply-report-button"
+                                        onClick={() => openReport({
+                                          targetType: "reply",
+                                          targetId: reply.id,
+                                          authorUsername: reply.author.username,
+                                          body: reply.body,
+                                          placeName: reply.placeName || post.placeName || selectedPlace?.name || "this place",
+                                        })}
+                                        aria-label={`Report reply by @${reply.author.username}`}
+                                        title="Report reply"
+                                      >
+                                        <Flag size={13} />
+                                      </button>
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -1892,6 +1987,49 @@ export default function HomePage() {
                 <p className="auth-small-print">Prototype accounts use secure server-side sessions. Use a unique password; email verification and production abuse controls are not implemented yet.</p>
               </>
             )}
+          </section>
+        </div>
+      )}
+
+      {reportTarget && (
+        <div className="report-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !reportBusy) setReportTarget(null);
+        }}>
+          <section className="report-modal" role="dialog" aria-modal="true" aria-labelledby="report-title">
+            <button className="report-close icon-button" type="button" onClick={() => setReportTarget(null)} aria-label="Close report dialog" disabled={reportBusy}>
+              <X size={16} />
+            </button>
+            <span className="report-modal-mark"><Flag size={19} /></span>
+            <span className="eyebrow">COMMUNITY SAFETY</span>
+            <h2 id="report-title">Report this {reportTarget.targetType}</h2>
+            <p className="report-intro">Tell us what seems wrong. Reports are private and help the moderation team review content.</p>
+            <div className="report-target-preview">
+              <small>{reportTarget.placeName} · @{reportTarget.authorUsername}</small>
+              <p>{reportTarget.body}</p>
+            </div>
+            <form className="report-form" onSubmit={(event) => void handleReportSubmit(event)}>
+              <label>
+                <span>Reason for reporting</span>
+                <select value={reportReason} onChange={(event) => setReportReason(event.target.value as ReportReason)} disabled={reportBusy}>
+                  <option value="spam">Spam or repetitive promotion</option>
+                  <option value="harassment">Harassment or hateful content</option>
+                  <option value="misinformation">Misleading or false information</option>
+                  <option value="unsafe">Unsafe or threatening content</option>
+                  <option value="privacy">Personal information or privacy concern</option>
+                  <option value="other">Something else</option>
+                </select>
+              </label>
+              <label>
+                <span>Additional context <small>{reportDetails.length}/300</small></span>
+                <textarea value={reportDetails} onChange={(event) => setReportDetails(event.target.value.slice(0, 300))} maxLength={300} rows={3} placeholder="Add a brief explanation (optional)." disabled={reportBusy} />
+              </label>
+              {reportError && <p className="report-error" role="alert">{reportError}</p>}
+              <button className="auth-submit report-submit" type="submit" disabled={reportBusy}>
+                {reportBusy ? <span className="mini-spinner" /> : <Flag size={15} />}
+                {reportBusy ? "Sending report…" : "Send private report"}
+              </button>
+            </form>
+            <p className="report-privacy-note">Reporting does not automatically remove content. A moderator will review the report.</p>
           </section>
         </div>
       )}
