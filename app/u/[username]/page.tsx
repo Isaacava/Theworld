@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -15,6 +16,7 @@ type ProfilePost = {
   presenceVerifiedAt: string | null;
   isRemoteQuestion: boolean;
   replyCount: number;
+  images?: { id: string; url: string }[];
 };
 
 type ProfilePayload = {
@@ -151,6 +153,11 @@ export default function PublicProfilePage() {
                           <time dateTime={post.createdAt}>{formatPostDate(post.createdAt)}</time>
                         </div>
                         <p className="profile-post-body">{post.body}</p>
+                        {post.images && post.images.length > 0 && (
+                          <div className="community-post-images profile-post-images">
+                            {post.images.map((image, index) => <a href={image.url} key={image.id} target="_blank" rel="noreferrer noopener" aria-label={`Open photo ${index + 1} in full size`}><Image src={image.url} alt={`Photo shared by @${payload.profile.username}`} width={960} height={720} unoptimized /></a>)}
+                          </div>
+                        )}
                         <div className="profile-post-footer">
                           <span><MapPin size={13} /> {post.placeName}</span>
                           <span><MessageCircle size={13} /> {post.replyCount} {post.replyCount === 1 ? "reply" : "replies"}</span>

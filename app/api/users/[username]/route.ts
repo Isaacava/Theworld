@@ -74,6 +74,7 @@ export async function GET(_request: Request, context: RouteContext) {
           presenceVerifiedAt: 1,
           isRemoteQuestion: 1,
           replyCount: 1,
+          images: 1,
         })
         .toArray(),
     ]);
@@ -97,6 +98,9 @@ export async function GET(_request: Request, context: RouteContext) {
           : null,
         isRemoteQuestion: post.isRemoteQuestion === true,
         replyCount: typeof post.replyCount === "number" ? post.replyCount : 0,
+        images: Array.isArray(post.images)
+          ? post.images.map((image) => String(image)).filter((id) => /^[a-f\d]{24}$/i.test(id)).slice(0, 3).map((id) => ({ id, url: `/api/uploads/${id}` }))
+          : [],
       };
     });
 

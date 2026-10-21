@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -47,6 +48,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type FormEvent,
 } from "react";
 import BusinessDirectory, { type BusinessTagOption } from "@/components/business-directory";
@@ -102,6 +104,7 @@ type CommunityPost = {
   type: "thought" | "question" | "discovery" | "update";
   isRemoteQuestion: boolean;
   taggedBusinesses: { businessId: string; name: string }[];
+  images?: { id: string; url: string }[];
   editedAt?: string | null;
   placeKey: string;
   placeName: string;
@@ -282,6 +285,8 @@ export default function HomePage() {
   const [followedActivityError, setFollowedActivityError] = useState("");
   const [followedActivityRefresh, setFollowedActivityRefresh] = useState(0);
   const [postBody, setPostBody] = useState("");
+  const [selectedPostImages, setSelectedPostImages] = useState<Array<{ file: File; previewUrl: string }>>([]);
+  const selectedPostImagesRef = useRef<Array<{ file: File; previewUrl: string }>>([]);
   const [postType, setPostType] = useState<CommunityPost["type"]>("thought");
   const [askFromElsewhere, setAskFromElsewhere] = useState(false);
   const [postBusy, setPostBusy] = useState(false);
@@ -1068,6 +1073,58 @@ export default function HomePage() {
     }
   }
 
+  function handlePostImagesChange(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const incoming = Array.from(input.files ?? []);
+    input.value = "";
+    if (!incoming.length) return;
+    const available = 3 - selectedPostImages.length;
+    if (available <= 0) {
+      setPostError("You can attach up to three photos to a post.");
+      return;
+    }
+    const valid: File[] = [];
+    for (const file of incoming) {
+      if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+        setPostError("Choose JPEG, PNG, or WebP photos only.");
+        continue;
+      }
+      if (file.size > 2_500_000) {
+        setPostError("Each photo must be smaller than 2.5 MB.");
+        continue;
+      }
+      valid.push(file);
+    }
+    const accepted = valid.slice(0, available).map((file) => ({ file, previewUrl: URL.createObjectURL(file) }));
+    if (valid.length > available) setPostError("Only three photos can be attached to one post.");
+    const next = [...selectedPostImages, ...accepted];
+    selectedPostImagesRef.current = next;
+    setSelectedPostImages(next);
+  }
+
+  function removePostImage(index: number) {
+    const target = selectedPostImages[index];
+    if (target) URL.revokeObjectURL(target.previewUrl);
+    const next = selectedPostImages.filter((_, itemIndex) => itemIndex !== index);
+    selectedPostImagesRef.current = next;
+    setSelectedPostImages(next);
+  }
+
+  async function uploadPostImages(): Promise<string[]> {
+    const imageIds: string[] = [];
+    for (const selected of selectedPostImages) {
+      const form = new FormData();
+      form.append("file", selected.file);
+      const response = await fetch("/api/uploads", { method: "POST", body: form });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.image || typeof payload.image.id !== "string") {
+        throw new Error(typeof payload.error === "string" ? payload.error : "An image could not be uploaded. Try a smaller photo.");
+      }
+      imageIds.push(payload.image.id);
+    }
+    return imageIds;
+  }
+
   async function handlePublishPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (postBusy || !selectedPlace) return;
@@ -1111,6 +1168,8 @@ export default function HomePage() {
         });
       }
 
+      showNotice(selectedPostImages.length ? "Uploading your photos…" : isRemoteQuestion ? "Sending your question to this place's community…" : "Publishing your post…");
+      const imageIds = await uploadPostImages();
       const response = await fetch("/api/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1119,6 +1178,7 @@ export default function HomePage() {
           type: postType,
           isRemoteQuestion,
           businessIds: taggedBusinessIds,
+          imageIds,
           place: {
             placeKey: selectedPlace.id,
             name: selectedPlace.name,
@@ -1156,6 +1216,9 @@ export default function HomePage() {
       setPostBody("");
       setAskFromElsewhere(false);
       setTaggedBusinessIds([]);
+      selectedPostImagesRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+      selectedPostImagesRef.current = [];
+      setSelectedPostImages([]);
       setCommunityTotalCount((count) => count + 1);
       setCommunityPosts((current) => current.slice(0, 30));
       showNotice(isRemoteQuestion
@@ -1167,6 +1230,8 @@ export default function HomePage() {
         setPostError("Location permission was denied. Use Ask Locals on a question to enquire without sharing your location.");
       } else if (!isRemoteQuestion && locationError?.code === 3) {
         setPostError("The location check timed out. Try again where your GPS signal is clearer, or use Ask Locals for a question.");
+      } else if (error instanceof Error && error.message) {
+        setPostError(error.message);
       } else if (isRemoteQuestion) {
         setPostError("We couldn't publish your question. Please check your connection and try again.");
       } else {
@@ -1176,6 +1241,10 @@ export default function HomePage() {
       setPostBusy(false);
     }
   }
+
+  useEffect(() => () => {
+    selectedPostImagesRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+  }, []);
 
   useEffect(() => {
     function closeSearchOnOutsideClick(event: MouseEvent) {
@@ -2135,6 +2204,15 @@ export default function HomePage() {
                     ) : (
                       <>
                         <p className="community-post-body">{post.body}{post.editedAt && <small className="community-edited-label"> · edited</small>}</p>
+                        {post.images && post.images.length > 0 && (
+                          <div className="community-post-images">
+                            {post.images.map((image, index) => (
+                              <a href={image.url} key={image.id} target="_blank" rel="noreferrer noopener" aria-label={`Open photo ${index + 1} in full size`}>
+                                <Image src={image.url} alt={`Photo shared by @${post.author.username}`} width={960} height={720} unoptimized />
+                              </a>
+                            ))}
+                          </div>
+                        )}
                         {post.taggedBusinesses?.length > 0 && (
                           <div className="tagged-business-list" aria-label="Tagged businesses">
                             {post.taggedBusinesses.map((business) => <button key={business.businessId} type="button" onClick={() => setCommunitySection("businesses")}><Building2 size={12} /> {business.name}</button>)}
@@ -2371,6 +2449,23 @@ export default function HomePage() {
                     aria-label={postType === "question" && askFromElsewhere ? "Your question for local people" : "Your local post"}
                     disabled={postBusy || !placeSupportsLiveHere || authConfigured !== true}
                   />
+                  <div className="post-image-picker">
+                    <label className="post-image-picker-button">
+                      <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handlePostImagesChange} disabled={postBusy || selectedPostImages.length >= 3} aria-label="Add post photos" />
+                      <span><Plus size={14} /> Add photos</span>
+                    </label>
+                    <small>Up to 3 photos · JPEG, PNG or WebP · 2.5 MB each</small>
+                  </div>
+                  {selectedPostImages.length > 0 && (
+                    <div className="post-image-previews">
+                      {selectedPostImages.map((item, index) => (
+                        <div className="post-image-preview" key={item.previewUrl}>
+                          <Image src={item.previewUrl} alt={`Selected photo ${index + 1}`} width={240} height={180} unoptimized />
+                          <button type="button" onClick={() => removePostImage(index)} disabled={postBusy} aria-label={`Remove photo ${index + 1}`}><X size={13} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {postType === "question" && (
                     <label className="remote-question-toggle">
                       <input
