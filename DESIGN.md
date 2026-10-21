@@ -129,3 +129,12 @@ The design direction was informed by public design-system research rather than c
 - [OpenFreeMap quick start](https://openfreemap.org/quick_start/)
 
 Use references to learn principles; do not reproduce another product's exact layout, brand, or styling.
+
+
+## Map provider behavior
+
+- The OpenFreeMap/MapLibre globe remains the default, key-free exploration experience.
+- Google photorealistic 3D is an optional user-selected view. Do not make core place search, community access, or the default map depend on Google's key or coverage.
+- Keep provider switching explicit, show a useful loading/error state, and return to the globe when the user switches back.
+- Do not imply that photorealistic 3D buildings are available everywhere; coverage varies by location.
+- Configure the browser key with website referrer restrictions and restrict it to the Maps JavaScript API. Never commit a real key.

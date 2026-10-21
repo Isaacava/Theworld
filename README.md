@@ -242,11 +242,22 @@ Open [http://localhost:3000](http://localhost:3000).
 
 The initial build is a map-explorer prototype. It supports the interactive globe, real-place search, quick links to sample destination cities, a location preview panel, a temporary session-only saved-place list, browser-based nearby positioning when permission is granted, and a globe/flat-map toggle. Community posts, account authentication, MongoDB persistence, and server-enforced presence verification are not connected yet.
 
-The default map style is OpenFreeMap's dark style. To test another compatible MapLibre style, create a local `.env.local` file:
+The default map style is OpenFreeMap Liberty. To test another compatible MapLibre style, create a local `.env.local` file:
 
 ```dotenv
 NEXT_PUBLIC_MAP_STYLE_URL=https://tiles.openfreemap.org/styles/liberty
 ```
+
+### Optional Google photorealistic 3D view
+
+THE WORLD keeps the interactive OpenFreeMap globe as its default and offers Google Maps Platform's photorealistic 3D view as an optional mode.
+
+1. Set `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` in local `.env.local` or Vercel Project Settings → Environment Variables for the **Preview** environment.
+2. Redeploy the `prototype` preview after adding or changing the variable.
+3. In Google Cloud, enable the Maps JavaScript API and restrict this key to the Maps JavaScript API and your website referrers. For the current prototype, allow your stable Vercel branch-preview hostname and `http://localhost:3000/*` for local development. Avoid broad `*.vercel.app` access.
+4. Never commit the key to Git. A browser Maps JavaScript key is visible to site visitors by necessity, so protect it with referrer and API restrictions and monitor usage.
+
+The Google Maps Demo Key is suitable only for prototyping and is not intended for production. Google 3D Maps for the web uses usage-based billing under the Immersive Maps SKU; the current global price list lists a 5,000-event free monthly cap, then paid usage. Check the live [Google Maps Platform pricing page](https://developers.google.com/maps/billing-and-pricing/pricing) before broader release. Coverage and level of photorealistic 3D detail vary by location. See the [official 3D Maps guide](https://developers.google.com/maps/documentation/javascript/3d/overview).
 
 Do not commit real secrets or private environment files. Place search, map-tap reverse lookup, and server-side place verification use the public OpenStreetMap Nominatim service only for low-volume prototype testing. When MongoDB is configured, search results and reverse lookups are cached there and requests reserve a shared Nominatim request slot through MongoDB so concurrent Vercel functions do not independently burst against the public service. Without MongoDB, the explorer falls back to a process-local cache and throttle for testing by a small number of users; it is not production-ready or globally coordinated.
 
