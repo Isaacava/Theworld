@@ -4,7 +4,6 @@ import {
   ArrowRight,
   ArrowUpRight,
   Bookmark,
-  Building2,
   Check,
   ChevronRight,
   Compass,
@@ -149,7 +148,9 @@ export default function HomePage() {
   const [activeNav, setActiveNav] = useState<"explore" | "nearby" | "saved">("explore");
   const [savedPlaces, setSavedPlaces] = useState<SelectedPlace[]>([]);
   const [projection, setProjection] = useState<"globe" | "flat">("globe");
-  const [mapProvider, setMapProvider] = useState<"globe" | "google-3d">("globe");
+  const [mapProvider, setMapProvider] = useState<"globe" | "google-3d">(
+    GOOGLE_3D_CONFIGURED ? "google-3d" : "globe",
+  );
   const [notice, setNotice] = useState("");
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [savedViewOpen, setSavedViewOpen] = useState(false);
@@ -767,21 +768,14 @@ export default function HomePage() {
     if (next) setProjection(next);
   }
 
-  function toggleMapProvider() {
-    if (mapProvider === "globe") {
-      if (!GOOGLE_3D_CONFIGURED) {
-        showNotice("To enable Google 3D, add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to the Vercel Preview environment, then redeploy.");
-        return;
-      }
+  const handleMapStatusChange = useCallback((status: MapStatus) => {
+    setMapStatus(status);
+    if (status === "error" && mapProvider === "google-3d") {
+      setMapProvider("globe");
       setProjection("globe");
-      setMapProvider("google-3d");
-      showNotice("Google 3D is loading. Detailed 3D imagery varies by location.");
-      return;
+      showNotice("Google 3D could not load, so the standard globe is shown instead.");
     }
-    setMapProvider("globe");
-    setProjection("globe");
-    showNotice("Returned to the world globe.");
-  }
+  }, [mapProvider, showNotice]);
 
   const isCurrentPlaceSaved = useMemo(
     () => selectedPlace && savedPlaces.some((place) => place.id === selectedPlace.id),
@@ -797,14 +791,14 @@ export default function HomePage() {
             ref={mapRef}
             initialCoordinates={selectedPlace?.coordinates ?? QUICK_PLACES[0].coordinates}
             initialZoom={selectedPlace?.zoom ?? QUICK_PLACES[0].zoom}
-            onStatusChange={setMapStatus}
+            onStatusChange={handleMapStatusChange}
             onMapClick={(coordinates) => { void handleMapClick(coordinates); }}
           />
         ) : (
           <GlobeMap
             key="openfreemap-globe"
             ref={mapRef}
-            onStatusChange={setMapStatus}
+            onStatusChange={handleMapStatusChange}
             onMapClick={(coordinates) => { void handleMapClick(coordinates); }}
           />
         )}
@@ -1337,12 +1331,12 @@ export default function HomePage() {
         </div>
       )}
 
-      <div className="map-controls" aria-label="Map controls">
-        <button type="button" onClick={() => mapRef.current?.zoomIn()} aria-label="Zoom in"><Plus size={17} /></button>
-        <button type="button" onClick={() => mapRef.current?.zoomOut()} aria-label="Zoom out"><Minus size={17} /></button>
-        <span className="map-controls-divider" />
-        <button type="button" onClick={() => { mapRef.current?.resetView(); setProjection("globe"); }} aria-label={mapProvider === "google-3d" ? "Reset Google 3D view" : "Reset globe view"} title="Reset view"><RotateCcw size={16} /></button>
-        {mapProvider === "globe" && (
+      {mapProvider === "globe" && (
+        <div className="map-controls" aria-label="Map controls">
+          <button type="button" onClick={() => mapRef.current?.zoomIn()} aria-label="Zoom in"><Plus size={17} /></button>
+          <button type="button" onClick={() => mapRef.current?.zoomOut()} aria-label="Zoom out"><Minus size={17} /></button>
+          <span className="map-controls-divider" />
+          <button type="button" onClick={() => { mapRef.current?.resetView(); setProjection("globe"); }} aria-label="Reset globe view" title="Reset view"><RotateCcw size={16} /></button>
           <button
             type="button"
             className="projection-button"
@@ -1353,23 +1347,8 @@ export default function HomePage() {
             <Layers size={17} />
             <span>{projection === "globe" ? "3D" : "2D"}</span>
           </button>
-        )}
-        <button
-          type="button"
-          className="projection-button google-view-button"
-          onClick={toggleMapProvider}
-          aria-label={mapProvider === "google-3d" ? "Return to globe map" : "Switch to Google 3D map"}
-          title={mapProvider === "google-3d"
-            ? "Return to the world globe"
-            : GOOGLE_3D_CONFIGURED
-              ? "Open Google's photorealistic 3D map"
-              : "Add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY in Vercel Preview to enable Google 3D"}
-          aria-pressed={mapProvider === "google-3d"}
-        >
-          {mapProvider === "google-3d" ? <Globe size={17} /> : <Building2 size={17} />}
-          <span>{mapProvider === "google-3d" ? "MAP" : "G3D"}</span>
-        </button>
-      </div>
+        </div>
+      )}
 
        {notice && (
         <div className="toast-message" role="status">
