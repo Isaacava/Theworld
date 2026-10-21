@@ -1897,6 +1897,11 @@ export default function HomePage() {
               <MapPin size={16} />
               <span>{selectedPlace.displayName}</span>
             </div>
+            {selectedPlace.displayName.split(",").filter(Boolean).length > 2 && (
+              <button type="button" className="broader-area-link" onClick={() => void exploreBroaderArea()}>
+                Explore broader area <ArrowUpRight size={13} />
+              </button>
+            )}
 
             <div className="place-actions">
               <button
@@ -1930,13 +1935,45 @@ export default function HomePage() {
             )}
 
             <div className="place-card-divider" />
-
+            <div className="place-community-tabs" role="tablist" aria-label="Place sections">
+              <button type="button" role="tab" aria-selected={communitySection === "conversations"} className={communitySection === "conversations" ? "active" : ""} onClick={() => setCommunitySection("conversations")}>
+                <MessageCircle size={15} /> Conversations <span>{communityTotalCount}</span>
+              </button>
+              <button type="button" role="tab" aria-selected={communitySection === "businesses"} className={communitySection === "businesses" ? "active" : ""} onClick={() => setCommunitySection("businesses")}>
+                <Building2 size={15} /> Businesses <span>{availableBusinessTags.length || ""}</span>
+              </button>
+            </div>
+            {communitySection === "businesses" ? (
+              <BusinessDirectory
+                place={{ id: selectedPlace.id, name: selectedPlace.name, displayName: selectedPlace.displayName, coordinates: selectedPlace.coordinates }}
+                sessionUser={sessionUser ? { id: sessionUser.id, username: sessionUser.username, displayName: sessionUser.displayName } : null}
+                authConfigured={authConfigured}
+                onSignIn={() => { setAuthMode("login"); setAuthError(""); setAuthModalOpen(true); }}
+                onBusinessesChange={handleBusinessTagsChange}
+              />
+            ) : (
+              <div className="community-feed-area">
+                <div className="community-feed-toolbar">
+                  <div className="community-feed-filter-row" role="group" aria-label="Filter conversations">
+                    <button type="button" className={communityFilter === "all" ? "active" : ""} onClick={() => setCommunityFilter("all")}>All</button>
+                    <button type="button" className={communityFilter === "question" ? "active" : ""} onClick={() => setCommunityFilter("question")}>Questions</button>
+                    <button type="button" className={communityFilter === "unanswered" ? "active" : ""} onClick={() => setCommunityFilter("unanswered")}>Unanswered</button>
+                    <button type="button" className={communityFilter === "discovery" ? "active" : ""} onClick={() => setCommunityFilter("discovery")}>Discoveries</button>
+                    <button type="button" className={communityFilter === "update" ? "active" : ""} onClick={() => setCommunityFilter("update")}>Updates</button>
+                  </div>
+                  <div className="community-feed-toolbar-bottom">
+                    <span>{communityTotalCount} {communityTotalCount === 1 ? "conversation" : "conversations"}</span>
+                    <button type="button" onClick={() => setCommunityRefreshVersion((version) => version + 1)} disabled={communityLoading} aria-label="Refresh conversations">
+                      <RefreshCw size={14} className={communityLoading ? "community-refresh-spinning" : ""} /> Refresh
+                    </button>
+                  </div>
+                </div>
             <div className="community-preview-heading">
               <div>
                 <span className="eyebrow">LOCAL COMMUNITY</span>
-                <h3>{communityPosts.length > 0 ? "Recent conversations" : "Start the conversation"}</h3>
+                <h3>{/city|town|municipality/i.test(selectedPlace.kind) ? "City conversations" : communityPosts.length > 0 ? "Recent conversations" : "Start the conversation"}</h3>
               </div>
-              <span className="community-count">{communityPosts.length}</span>
+              <span className="community-count">{communityTotalCount}</span>
             </div>
 
             {!placeSupportsLiveHere ? (
@@ -1954,6 +1991,7 @@ export default function HomePage() {
                 <div>
                   <strong>Community status</strong>
                   <p>{communityError}</p>
+                  <button type="button" className="community-inline-retry" onClick={() => setCommunityRefreshVersion((version) => version + 1)}>Retry <RefreshCw size={12} /></button>
                 </div>
               </div>
             ) : communityPosts.length === 0 ? (
@@ -1979,7 +2017,21 @@ export default function HomePage() {
                         )}
                       </div>
                     </div>
-                    <p className="community-post-body">{post.body}</p>
+                    {editingPostId === post.id ? (
+                      <form className="community-edit-form" onSubmit={(event) => void saveEditedPost(event, post)}>
+                        <textarea value={editingPostBody} onChange={(event) => setEditingPostBody(event.target.value.slice(0, 500))} rows={4} maxLength={500} required aria-label="Edit your post" />
+                        <div><span>{editingPostBody.length}/500</span><button type="submit" disabled={postBusy || editingPostBody.trim().length < 2}>{postBusy ? "Saving…" : "Save changes"}</button><button type="button" className="community-quiet-button" onClick={() => { setEditingPostId(null); setEditingPostBody(""); }}>Cancel</button></div>
+                      </form>
+                    ) : (
+                      <>
+                        <p className="community-post-body">{post.body}{post.editedAt && <small className="community-edited-label"> · edited</small>}</p>
+                        {post.taggedBusinesses?.length > 0 && (
+                          <div className="tagged-business-list" aria-label="Tagged businesses">
+                            {post.taggedBusinesses.map((business) => <button key={business.businessId} type="button" onClick={() => setCommunitySection("businesses")}><Building2 size={12} /> {business.name}</button>)}
+                          </div>
+                        )}
+                      </>
+                    )}
                     <div className="community-post-footer">
                       <span><MapPin size={12} /> {post.placeName || selectedPlace?.name}</span>
                       {post.presenceVerifiedAt && <span><ShieldCheck size={12} /> Presence checked</span>}
@@ -1997,7 +2049,19 @@ export default function HomePage() {
                         <span>{post.likesCount || 0}</span>
                         <span>{post.likesCount === 1 ? "like" : "likes"}</span>
                       </button>
-                      {post.author.username !== sessionUser?.username && (
+                      <button type="button" className="post-reaction-button" onClick={() => void sharePost(post)} aria-label="Share conversation" title="Share conversation">
+                        <Share2 size={14} /><span>Share</span>
+                      </button>
+                      {post.author.username === sessionUser?.username ? (
+                        <>
+                          <button type="button" className="post-report-trigger" onClick={() => { setEditingPostId(post.id); setEditingPostBody(post.body); setPostError(""); }} aria-label="Edit your post" title="Edit post">
+                            <Pencil size={14} /><span>Edit</span>
+                          </button>
+                          <button type="button" className="post-report-trigger" onClick={() => void deletePost(post)} disabled={postBusy} aria-label="Delete your post" title="Delete post">
+                            <Trash2 size={14} /><span>Delete</span>
+                          </button>
+                        </>
+                      ) : (
                         <button
                           type="button"
                           className="post-report-trigger"
@@ -2135,6 +2199,13 @@ export default function HomePage() {
               </div>
             )}
 
+            {communityHasMore && (
+              <div className="community-load-more-wrap">
+                <button type="button" className="community-load-more" onClick={() => void loadMoreCommunityPosts()} disabled={communityLoadingMore}>
+                  {communityLoadingMore ? <span className="mini-spinner" /> : <ChevronDown size={15} />} {communityLoadingMore ? "Loading older conversations…" : "Load older conversations"}
+                </button>
+              </div>
+            )}
             <div className="post-composer-card" id="community-composer">
               <div className="post-composer-heading">
                 <span className="composer-icon"><MessageCircle size={16} /></span>
@@ -2187,6 +2258,24 @@ export default function HomePage() {
                       </span>
                     </label>
                   )}
+                  {availableBusinessTags.length > 0 && (
+                    <fieldset className="post-business-tags">
+                      <legend>Tag a verified business (optional, up to 3)</legend>
+                      <div>
+                        {availableBusinessTags.map((business) => (
+                          <label key={business.businessId}>
+                            <input type="checkbox" checked={taggedBusinessIds.includes(business.businessId)} onChange={(event) => {
+                              if (event.target.checked) {
+                                if (taggedBusinessIds.length >= 3) { showNotice("You can tag up to three businesses per post."); return; }
+                                setTaggedBusinessIds((current) => current.includes(business.businessId) ? current : [...current, business.businessId]);
+                              } else setTaggedBusinessIds((current) => current.filter((id) => id !== business.businessId));
+                            }} disabled={postBusy} />
+                            <span><Building2 size={12} /> {business.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                  )}
                   <div className="post-composer-bottom">
                     <span>{postBody.length}/500 · {postType === "question" && askFromElsewhere ? "No location check · Ask Locals" : "Location check required"}</span>
                     <button type="submit" disabled={postBusy || postBody.trim().length < 2 || !placeSupportsLiveHere || authConfigured !== true}>
@@ -2210,6 +2299,8 @@ export default function HomePage() {
                   : "Your exact coordinates are not published. The server checks the mapped OSM geometry. Browser GPS can still be spoofed, so this remains a prototype safeguard, not security-grade proof."}</span>
               </div>
             </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="welcome-panel-content">
