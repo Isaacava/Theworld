@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -1432,7 +1433,7 @@ export default function HomePage() {
                     <div className="community-post-top">
                       <span className="community-post-avatar">{(post.author.displayName || post.author.username || "W").slice(0, 1).toUpperCase()}</span>
                       <div className="community-post-author">
-                        <strong>{post.author.displayName || post.author.username}</strong>
+                        <Link className="profile-name-link" href={`/u/${encodeURIComponent(post.author.username)}`}><strong>{post.author.displayName || post.author.username}</strong></Link>
                         <small>@{post.author.username} · {formatPostTime(post.createdAt)}</small>
                       </div>
                       <span className={`community-post-type type-${post.type}`}>{post.type}</span>
@@ -1502,7 +1503,7 @@ export default function HomePage() {
                                     <span className="reply-avatar">{(reply.author.displayName || reply.author.username || "W").slice(0, 1).toUpperCase()}</span>
                                     <div className="reply-content">
                                       <div className="reply-author-line">
-                                        <strong>{reply.author.displayName || reply.author.username}</strong>
+                                        <Link className="profile-name-link" href={`/u/${encodeURIComponent(reply.author.username)}`}><strong>{reply.author.displayName || reply.author.username}</strong></Link>
                                         <small>@{reply.author.username} · {formatPostTime(reply.createdAt)}</small>
                                       </div>
                                       <p>{reply.body}</p>
