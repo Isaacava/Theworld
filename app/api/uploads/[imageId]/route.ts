@@ -17,7 +17,12 @@ export async function GET(_request: Request, context: RouteContext) {
     const db = await getDatabase();
     const id = new ObjectId(imageId);
     const file = await db.collection("postImages.files").findOne({ _id: id });
-    if (!file || typeof file.contentType !== "string" || !ALLOWED_MIME_TYPES.has(file.contentType)) {
+    if (!file) return NextResponse.json({ error: "That image is no longer available." }, { status: 404 });
+    const metadata = file.metadata && typeof file.metadata === "object" ? file.metadata as Record<string, unknown> : {};
+    const contentType = typeof metadata.contentType === "string"
+      ? metadata.contentType
+      : typeof file.contentType === "string" ? file.contentType : "";
+    if (!ALLOWED_MIME_TYPES.has(contentType)) {
       return NextResponse.json({ error: "That image is no longer available." }, { status: 404 });
     }
     // Images are public only while referenced by a visible community post.
@@ -26,7 +31,7 @@ export async function GET(_request: Request, context: RouteContext) {
     const stream = new GridFSBucket(db, { bucketName: "postImages" }).openDownloadStream(id);
     return new Response(Readable.toWeb(stream) as ReadableStream, {
       headers: {
-        "Content-Type": file.contentType,
+        "Content-Type": contentType,
         "Content-Length": String(file.length ?? ""),
         "Cache-Control": "public, max-age=300, stale-while-revalidate=600",
         "X-Content-Type-Options": "nosniff",

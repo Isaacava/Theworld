@@ -71,8 +71,7 @@ export async function POST(request: Request) {
 
     const safeFilename = file.name.replace(/[\\/]/g, "_").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100) || "community-image";
     const stream = bucket.openUploadStream(safeFilename, {
-      contentType: detectedType,
-      metadata: { userId, username: user.username, uploadedAt: now },
+      metadata: { userId, username: user.username, uploadedAt: now, contentType: detectedType },
     });
     await new Promise<void>((resolve, reject) => {
       stream.once("error", reject);

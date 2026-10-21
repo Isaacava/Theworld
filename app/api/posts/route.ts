@@ -341,7 +341,7 @@ export async function POST(request: Request) {
         _id: { $in: imageObjectIds },
         "metadata.userId": userId,
         uploadDate: { $gte: uploadCutoff },
-        contentType: { $in: ["image/jpeg", "image/png", "image/webp"] },
+        "metadata.contentType": { $in: ["image/jpeg", "image/png", "image/webp"] },
       }).project({ _id: 1 }).toArray();
       if (ownedFiles.length !== imageObjectIds.length) {
         return NextResponse.json({ error: "One or more images expired or do not belong to your account. Select them again." }, { status: 422 });
