@@ -118,7 +118,7 @@ async function loadNearbyCommunities(
   const current = Date.now();
   const previous = await rates.findOneAndUpdate(
     { _id: "overpass-global" },
-    [{ $set: { nextAllowedAt: { $add: [{ $max: [{ $ifNull: ["$nextAllowedAt", current] }, current] }, 1000] } } } } }],
+    [{ $set: { nextAllowedAt: { $add: [{ $max: [{ $ifNull: ["$nextAllowedAt", current] }, current] }, 1000] } } }],
     { upsert: true, returnDocument: "before" },
   );
   const delay = Math.max(0, (previous?.nextAllowedAt ?? current) - current);
